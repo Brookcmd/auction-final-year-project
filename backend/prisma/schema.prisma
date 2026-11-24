@@ -1,0 +1,372 @@
+// Prisma schema for BIDORA - Real-Time Auction & Bidding Platform
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+enum Role {
+  GUEST
+  BUYER
+  SELLER
+  ADMIN
+}
+
+enum UserStatus {
+  ACTIVE
+  SUSPENDED
+  PENDING_VERIFICATION
+}
+
+enum ItemCondition {
+  BRAND_NEW
+  LIKE_NEW
+  REFURBISHED
+  USED
+  FOR_PARTS
+}
+
+enum AuctionStatus {
+  DRAFT
+  PENDING_REVIEW
+  ACTIVE
+  EXTENDED
+  ENDED
+  CANCELLED
+}
+
+enum NotificationType {
+  OUTBID
+  BID_ACCEPTED
+  AUCTION_ENDING
+  AUCTION_WON
+  LISTING_APPROVED
+  LISTING_REJECTED
+  PAYMENT_DUE
+  PAYMENT_CONFIRMED
+  DISPUTE_ALERT
+}
+
+enum PaymentStatus {
+  PENDING
+  IN_ESCROW
+  RELEASED_TO_SELLER
+  REFUNDED
+}
+
+enum DeliveryStatus {
+  PENDING
+  DISPATCHED
+  DELIVERED
+  ACCEPTED
+}
+
+enum PaymentProvider {
+  TELEBIRR
+  CBE_BIRR
+  BANK_TRANSFER
+  CASH_ON_PICKUP
+}
+
+enum VerificationStatus {
+  PENDING
+  APPROVED
+  REJECTED
+}
+
+enum FlagSeverity {
+  LOW
+  MEDIUM
+  HIGH
+  CRITICAL
+}
+
+model User {
+  id                String       @id @default(uuid())
+  email             String       @unique
+  passwordHash      String
+  role              Role         @default(BUYER)
+  status            UserStatus   @default(ACTIVE)
+  emailVerified     Boolean      @default(false)
+  refreshTokenHash  String?
+  createdAt         DateTime     @default(now())
+  updatedAt         DateTime     @updatedAt
+
+  profile           UserProfile?
+  auctions          Auction[]    @relation("SellerAuctions")
+  wonAuctions       Auction[]    @relation("WinningBidder")
+  bids              Bid[]
+  proxyBids         ProxyBid[]
+  watchlist         Watchlist[]
+  notifications     Notification[]
+  buyerTransactions Transaction[] @relation("BuyerTransactions")
+  sellerTransactions Transaction[] @relation("SellerTransactions")
+  verificationRequests VerificationRequest[]
+  auditLogs         AuditLog[]
+  reportsSubmitted  Report[]      @relation("ReportReporter")
+  suspiciousFlags   SuspiciousActivityFlag[]
+
+  @@index([email])
+  @@index([role])
+  @@index([status])
+}
+
+model UserProfile {
+  id                String    @id @default(uuid())
+  userId            String    @unique
+  user              User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+  fullName          String
+  phoneNumber       String?
+  nationalIdNumber  String?
+  city              String    @default("Addis Ababa")
+  address           String?
+  avatarUrl         String?
+  nationalIdUrl     String?
+  isKycVerified     Boolean   @default(false)
+  escrowBalanceETB  Decimal   @default(0.0) @db.Decimal(12, 2)
+  createdAt         DateTime  @default(now())
+  updatedAt         DateTime  @updatedAt
+}
+
+model Category {
+  id          String    @id @default(uuid())
+  name        String    @unique
+  slug        String    @unique
+  description String?
+  iconName    String?
+  displayOrder Int      @default(0)
+  createdAt   DateTime  @default(now())
+  updatedAt   DateTime  @updatedAt
+
+  auctions    Auction[]
+}
+
+model Auction {
+  id                    String         @id @default(uuid())
+  sellerId              String
+  seller                User           @relation("SellerAuctions", fields: [sellerId], references: [id], onDelete: Cascade)
+  categoryId            String
+  category              Category       @relation(fields: [categoryId], references: [id])
+  title                 String
+  description           String         @db.Text
+  condition             ItemCondition  @default(USED)
+  locationCity          String         @default("Addis Ababa")
+  startingPrice         Decimal        @db.Decimal(12, 2)
+  currentHighestBid     Decimal        @default(0.0) @db.Decimal(12, 2)
+  reservePrice          Decimal?       @db.Decimal(12, 2)
+  bidIncrement          Decimal        @default(100.0) @db.Decimal(12, 2)
+  status                AuctionStatus  @default(PENDING_REVIEW)
+  startTime             DateTime
+  endTime               DateTime
+  originalEndTime       DateTime
+  antiSnipingExtensions Int            @default(0)
+  totalBidsCount        Int            @default(0)
+  winningBidderId       String?
+  winningBidder         User?          @relation("WinningBidder", fields: [winningBidderId], references: [id])
+  createdAt             DateTime       @default(now())
+  updatedAt             DateTime       @updatedAt
+
+  images                AuctionImage[]
+  bids                  Bid[]
+  proxyBids             ProxyBid[]
+  watchlist             Watchlist[]
+  transaction           Transaction?
+  reports               Report[]
+  suspiciousFlags       SuspiciousActivityFlag[]
+
+  @@index([status])
+  @@index([categoryId])
+  @@index([sellerId])
+  @@index([endTime])
+  @@index([currentHighestBid])
+}
+
+model AuctionImage {
+  id          String   @id @default(uuid())
+  auctionId   String
+  auction     Auction  @relation(fields: [auctionId], references: [id], onDelete: Cascade)
+  url         String
+  displayOrder Int     @default(0)
+  isCover     Boolean  @default(false)
+  createdAt   DateTime @default(now())
+
+  @@index([auctionId])
+}
+
+model Bid {
+  id           String   @id @default(uuid())
+  auctionId    String
+  auction      Auction  @relation(fields: [auctionId], references: [id], onDelete: Cascade)
+  bidderId     String
+  bidder       User     @relation(fields: [bidderId], references: [id], onDelete: Cascade)
+  amount       Decimal  @db.Decimal(12, 2)
+  bidderAlias  String   // e.g. "Bidder #419" to preserve privacy while in live room
+  isProxyBid   Boolean  @default(false)
+  ipAddress    String?
+  placedAt     DateTime @default(now())
+
+  @@index([auctionId, placedAt])
+  @@index([bidderId])
+}
+
+model ProxyBid {
+  id        String   @id @default(uuid())
+  auctionId String
+  auction   Auction  @relation(fields: [auctionId], references: [id], onDelete: Cascade)
+  bidderId  String
+  bidder    User     @relation(fields: [bidderId], references: [id], onDelete: Cascade)
+  maxAmount Decimal  @db.Decimal(12, 2)
+  isActive  Boolean  @default(true)
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@unique([auctionId, bidderId])
+  @@index([auctionId])
+}
+
+model Watchlist {
+  id        String   @id @default(uuid())
+  userId    String
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  auctionId String
+  auction   Auction  @relation(fields: [auctionId], references: [id], onDelete: Cascade)
+  addedAt   DateTime @default(now())
+
+  @@unique([userId, auctionId])
+  @@index([userId])
+}
+
+model Notification {
+  id        String           @id @default(uuid())
+  userId    String
+  user      User             @relation(fields: [userId], references: [id], onDelete: Cascade)
+  title     String
+  message   String           @db.Text
+  type      NotificationType
+  isRead    Boolean          @default(false)
+  linkUrl   String?
+  createdAt DateTime         @default(now())
+
+  @@index([userId, isRead])
+  @@index([createdAt])
+}
+
+model Transaction {
+  id                 String          @id @default(uuid())
+  auctionId          String          @unique
+  auction            Auction         @relation(fields: [auctionId], references: [id])
+  buyerId            String
+  buyer              User            @relation("BuyerTransactions", fields: [buyerId], references: [id])
+  sellerId           String
+  seller             User            @relation("SellerTransactions", fields: [sellerId], references: [id])
+  finalAmount        Decimal         @db.Decimal(12, 2)
+  paymentStatus      PaymentStatus   @default(PENDING)
+  deliveryStatus     DeliveryStatus  @default(PENDING)
+  paymentProvider    PaymentProvider @default(TELEBIRR)
+  paymentReference   String?
+  escrowReleasedAt   DateTime?
+  disputed           Boolean         @default(false)
+  createdAt          DateTime        @default(now())
+  updatedAt          DateTime        @updatedAt
+
+  payments           Payment[]
+  dispute            Dispute?
+
+  @@index([buyerId])
+  @@index([sellerId])
+  @@index([paymentStatus])
+}
+
+model Payment {
+  id            String          @id @default(uuid())
+  transactionId String
+  transaction   Transaction     @relation(fields: [transactionId], references: [id], onDelete: Cascade)
+  amount        Decimal         @db.Decimal(12, 2)
+  provider      PaymentProvider
+  providerRef   String?
+  status        String          // e.g. "INITIATED", "SUCCESS", "FAILED"
+  rawResponse   String?         @db.Text
+  createdAt     DateTime        @default(now())
+
+  @@index([transactionId])
+}
+
+model VerificationRequest {
+  id               String             @id @default(uuid())
+  userId           String
+  user             User               @relation(fields: [userId], references: [id], onDelete: Cascade)
+  idType           String             @default("National ID")
+  documentFrontUrl String
+  documentBackUrl  String?
+  status           VerificationStatus @default(PENDING)
+  reviewerNotes    String?            @db.Text
+  submittedAt      DateTime           @default(now())
+  reviewedAt       DateTime?
+
+  @@index([userId])
+  @@index([status])
+}
+
+model Report {
+  id          String   @id @default(uuid())
+  reporterId  String
+  reporter    User     @relation("ReportReporter", fields: [reporterId], references: [id])
+  auctionId   String
+  auction     Auction  @relation(fields: [auctionId], references: [id], onDelete: Cascade)
+  reason      String
+  details     String?  @db.Text
+  status      String   @default("OPEN") // OPEN, RESOLVED, DISMISSED
+  createdAt   DateTime @default(now())
+
+  @@index([auctionId])
+}
+
+model Dispute {
+  id            String       @id @default(uuid())
+  transactionId String       @unique
+  transaction   Transaction  @relation(fields: [transactionId], references: [id])
+  reason        String
+  evidenceUrl   String?
+  status        String       @default("PENDING_REVIEW") // PENDING_REVIEW, BUYER_REFUNDED, SELLER_PAID, SETTLED
+  adminNotes    String?      @db.Text
+  createdAt     DateTime     @default(now())
+  resolvedAt    DateTime?
+}
+
+model AuditLog {
+  id         String   @id @default(uuid())
+  userId     String?
+  user       User?    @relation(fields: [userId], references: [id], onDelete: SetNull)
+  action     String   // e.g. "BID_PLACED", "AUCTION_EXTENDED", "USER_SUSPENDED"
+  entityType String   // e.g. "Auction", "Bid", "User"
+  entityId   String
+  metadata   String?  @db.Text
+  ipAddress  String?
+  timestamp  DateTime @default(now())
+
+  @@index([action])
+  @@index([entityType, entityId])
+  @@index([timestamp])
+}
+
+model SuspiciousActivityFlag {
+  id              String       @id @default(uuid())
+  auctionId       String
+  auction         Auction      @relation(fields: [auctionId], references: [id], onDelete: Cascade)
+  userId          String?
+  user            User?        @relation(fields: [userId], references: [id], onDelete: SetNull)
+  flagType        String       // e.g. "RAPID_BID_VELOCITY", "SUSPECTED_SHILL_COLLUSION", "ABNORMAL_INCREMENT"
+  severity        FlagSeverity @default(MEDIUM)
+  confidenceScore Float        // 0.0 to 1.0
+  explanation     String       @db.Text
+  reviewedByAdmin Boolean      @default(false)
+  createdAt       DateTime     @default(now())
+
+  @@index([auctionId])
+  @@index([flagType])
+  @@index([reviewedByAdmin])
+}
