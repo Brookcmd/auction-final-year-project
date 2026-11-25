@@ -22,6 +22,24 @@ export class RolesGuard implements CanActivate {
       throw new ForbiddenException('User not authenticated');
     }
 
+    // SUPER_ADMIN holds highest platform authority across all administrative permissions
+    if (user.role === Role.SUPER_ADMIN) {
+      return true;
+    }
+
+    // Legacy ADMIN alias also satisfies SUPER_ADMIN-or-ADMIN routes for backward compatibility
+    if (
+      user.role === Role.ADMIN &&
+      (requiredRoles.includes(Role.ADMIN) ||
+        requiredRoles.includes(Role.SUPER_ADMIN) ||
+        requiredRoles.includes(Role.AUCTION_MANAGER) ||
+        requiredRoles.includes(Role.VERIFICATION_OFFICER) ||
+        requiredRoles.includes(Role.FINANCE_OFFICER) ||
+        requiredRoles.includes(Role.SUPPORT_OFFICER))
+    ) {
+      return true;
+    }
+
     const hasRole = requiredRoles.includes(user.role);
     if (!hasRole) {
       throw new ForbiddenException(`Access restricted to roles: ${requiredRoles.join(', ')}`);

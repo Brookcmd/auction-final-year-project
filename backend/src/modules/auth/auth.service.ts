@@ -33,11 +33,15 @@ export class AuthService {
     const salt = await bcrypt.genSalt(10);
     const passwordHash = await bcrypt.hash(dto.password, salt);
 
+    // Public registration may only create BUYER, SELLER, or INSPECTION_PARTNER accounts
+    const allowedPublicRoles: Role[] = [Role.BUYER, Role.SELLER, Role.INSPECTION_PARTNER];
+    const requestedRole = dto.role && allowedPublicRoles.includes(dto.role) ? dto.role : Role.BUYER;
+
     const user = await this.prisma.user.create({
       data: {
         email: dto.email.toLowerCase(),
         passwordHash,
-        role: dto.role || Role.BUYER,
+        role: requestedRole,
         profile: {
           create: {
             fullName: dto.fullName,
