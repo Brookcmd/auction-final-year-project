@@ -1,62 +1,173 @@
 import { Injectable, Logger } from '@nestjs/common';
 import { PrismaService } from '../../prisma/prisma.service';
-import { FlagSeverity } from '@prisma/client';
+import { AuditService } from '../../common/services/audit.service';
+import { AuctionStatus, DepositStatus, DisputeStatus, FlagSeverity, Role, VerificationStatus } from '@prisma/client';
 
 @Injectable()
 export class AnalyticsService {
   private readonly logger = new Logger(AnalyticsService.name);
 
-  constructor(private prisma: PrismaService) {}
+  constructor(
+    private prisma: PrismaService,
+    private auditService: AuditService,
+  ) {}
 
   /**
-   * Platform Overview Metrics for Admin & Evaluation
+   * Comprehensive Platform Overview Metrics (Clearly separating simulated transactions from real revenue)
    */
   async getPlatformOverview() {
     const [
       totalUsers,
+      verifiedBuyers,
+      verifiedSellers,
+      pendingVerifications,
       totalAuctions,
       activeAuctions,
+      pendingAuctionApprovals,
       completedAuctions,
       totalBids,
       totalTransactions,
-      settledVolume,
+      simulatedVolume,
+      totalDeposits,
+      pendingRefunds,
+      activeDisputes,
+      approvedInspectors,
     ] = await Promise.all([
       this.prisma.user.count(),
+      this.prisma.user.count({ where: { role: Role.BUYER, profile: { isKycVerified: true } } }),
+      this.prisma.user.count({ where: { role: Role.SELLER, profile: { isKycVerified: true } } }),
+      this.prisma.verificationRequest.count({
+        where: { status: { in: [VerificationStatus.PENDING, VerificationStatus.PENDING_REVIEW] } },
+      }),
       this.prisma.auction.count(),
-      this.prisma.auction.count({ where: { status: { in: ['ACTIVE', 'EXTENDED'] } } }),
-      this.prisma.auction.count({ where: { status: 'ENDED' } }),
+      this.prisma.auction.count({ where: { status: { in: [AuctionStatus.ACTIVE, AuctionStatus.EXTENDED] } } }),
+      this.prisma.auction.count({
+        where: {
+          status: {
+            in: [
+              AuctionStatus.SUBMITTED,
+              AuctionStatus.PENDING_REVIEW,
+              AuctionStatus.UNDER_REVIEW,
+              AuctionStatus.INSPECTION_COMPLETED,
+            ],
+          },
+        },
+      }),
+      this.prisma.auction.count({ where: { status: { in: [AuctionStatus.ENDED, AuctionStatus.COMPLETED] } } }),
       this.prisma.bid.count(),
       this.prisma.transaction.count(),
       this.prisma.transaction.aggregate({
-        where: { paymentStatus: 'RELEASED_TO_SELLER' },
         _sum: { finalAmount: true },
       }),
+      this.prisma.bidSecurityDeposit.aggregate({
+        _sum: { amount: true },
+        _count: true,
+      }),
+      this.prisma.bidSecurityDeposit.count({
+        where: { status: DepositStatus.REFUND_PENDING },
+      }),
+      this.prisma.dispute.count({
+        where: { status: { in: [DisputeStatus.OPEN, DisputeStatus.UNDER_REVIEW, DisputeStatus.ESCALATED, DisputeStatus.APPEALED] } },
+      }),
+      this.prisma.inspectionPartner.count({ where: { approvalStatus: 'APPROVED' } }),
     ]);
 
     return {
       totalUsers,
+      verifiedBuyers,
+      verifiedSellers,
+      pendingVerifications,
       totalAuctions,
       activeAuctions,
+      pendingAuctionApprovals,
       completedAuctions,
       totalBids,
       totalTransactions,
-      settledVolumeETB: settledVolume._sum.finalAmount || 0,
+      // Explicitly marked as simulated prototype volume (not real revenue)
+      simulatedTransactionVolumeETB: Number(simulatedVolume._sum.finalAmount || 0),
+      settledVolumeETB: Number(simulatedVolume._sum.finalAmount || 0),
+      simulatedDepositsCount: totalDeposits._count,
+      simulatedDepositsTotalETB: Number(totalDeposits._sum.amount || 0),
+      pendingRefunds,
+      activeDisputes,
+      approvedInspectors,
     };
   }
 
   /**
-   * AI-Assisted Suspicious Activity & Bidding Fraud Detection
-   * Analyzes:
-   * 1. Rapid Bid Velocity (Bids placed < 1 second apart by same account)
-   * 2. Suspected Shill Collusion (Repetitive bid alternation between 2 specific accounts)
-   * 3. Abnormal Price Spike (Bids exceeding 300% of previous bid)
+   * Detailed Category, Success Rate, Deposit & Risk Analytics
+   */
+  async getDetailedAnalytics() {
+    const categories = await this.prisma.category.findMany({
+      include: {
+        auctions: {
+          select: { status: true, currentHighestBid: true, totalBidsCount: true },
+        },
+      },
+    });
+
+    const byCategory = categories.map((c) => {
+      const count = c.auctions.length;
+      const completed = c.auctions.filter(
+        (a) => a.status === AuctionStatus.ENDED || a.status === AuctionStatus.COMPLETED,
+      );
+      const avgWinningPrice =
+        completed.length > 0
+          ? completed.reduce((acc, a) => acc + Number(a.currentHighestBid), 0) / completed.length
+          : 0;
+      return {
+        category: c.name,
+        slug: c.slug,
+        totalAuctions: count,
+        completedAuctions: completed.length,
+        avgWinningPriceETB: Math.round(avgWinningPrice),
+      };
+    });
+
+    const [totalAuctions, successfulAuctions, depositsByStatus, flagsBySeverity] = await Promise.all([
+      this.prisma.auction.count({ where: { status: { in: [AuctionStatus.ENDED, AuctionStatus.COMPLETED] } } }),
+      this.prisma.auction.count({
+        where: {
+          status: { in: [AuctionStatus.ENDED, AuctionStatus.COMPLETED] },
+          winningBidderId: { not: null },
+        },
+      }),
+      this.prisma.bidSecurityDeposit.groupBy({
+        by: ['status'],
+        _count: true,
+        _sum: { amount: true },
+      }),
+      this.prisma.suspiciousActivityFlag.groupBy({
+        by: ['severity'],
+        _count: true,
+      }),
+    ]);
+
+    return {
+      byCategory,
+      auctionSuccessRatePercent:
+        totalAuctions > 0 ? Math.round((successfulAuctions / totalAuctions) * 100) : 0,
+      depositsBreakdown: depositsByStatus.map((d) => ({
+        status: d.status,
+        count: d._count,
+        amountETB: Number(d._sum.amount || 0),
+      })),
+      riskBreakdown: flagsBySeverity.map((r) => ({
+        severity: r.severity,
+        count: r._count,
+      })),
+    };
+  }
+
+  /**
+   * Rule-Based Explainable AI-Assisted Risk Detection Engine
+   * Assists administrators only; preserves evidence; never auto-bans users.
    */
   async runFraudDetectionScan() {
     const flaggedItems: any[] = [];
 
-    // Analyze active or recently ended auctions
     const auctions = await this.prisma.auction.findMany({
-      take: 20,
+      take: 30,
       orderBy: { updatedAt: 'desc' },
       include: {
         bids: {
@@ -68,25 +179,40 @@ export class AnalyticsService {
 
     for (const auction of auctions) {
       const bids = auction.bids;
-      if (bids.length < 3) continue;
+      if (bids.length < 2) continue;
 
-      // 1. Velocity Analysis: Bids < 1500ms apart from same user
+      // 1. Rapid Bid Velocity (< 1.5s apart by same user)
       for (let i = 1; i < bids.length; i++) {
         const diffMs = bids[i].placedAt.getTime() - bids[i - 1].placedAt.getTime();
         if (bids[i].bidderId === bids[i - 1].bidderId && diffMs < 1500) {
-          const flag = {
+          flaggedItems.push({
             auctionId: auction.id,
             userId: bids[i].bidderId,
             flagType: 'RAPID_BID_VELOCITY',
             severity: FlagSeverity.MEDIUM,
             confidenceScore: 0.82,
-            explanation: `User placed consecutive bids only ${diffMs}ms apart, indicating possible automated script or double-click anomaly.`,
-          };
-          flaggedItems.push(flag);
+            explanation: `Rule match: consecutive bids placed ${diffMs}ms apart by the same bidder.`,
+            evidenceJson: JSON.stringify({ bidIds: [bids[i - 1].id, bids[i].id], diffMs }),
+          });
+        }
+
+        // 2. Sudden Abnormal Price Spike (> 200% jump in a single step)
+        const prevAmount = Number(bids[i - 1].amount);
+        const currAmount = Number(bids[i].amount);
+        if (prevAmount > 0 && currAmount >= prevAmount * 3) {
+          flaggedItems.push({
+            auctionId: auction.id,
+            userId: bids[i].bidderId,
+            flagType: 'ABNORMAL_PRICE_SPIKE',
+            severity: FlagSeverity.HIGH,
+            confidenceScore: 0.79,
+            explanation: `Rule match: single bid jumped from ETB ${prevAmount.toLocaleString()} to ETB ${currAmount.toLocaleString()} (>= 300%).`,
+            evidenceJson: JSON.stringify({ bidId: bids[i].id, prevAmount, currAmount }),
+          });
         }
       }
 
-      // 2. Pairwise Alternation (Shill Bidding heuristic between 2 users driving up price)
+      // 3. Pairwise Alternation (Shill Collusion Heuristic)
       if (bids.length >= 6) {
         let alternatingCount = 0;
         const userA = bids[bids.length - 1].bidderId;
@@ -105,18 +231,36 @@ export class AnalyticsService {
               flagType: 'SUSPECTED_SHILL_COLLUSION',
               severity: FlagSeverity.HIGH,
               confidenceScore: 0.88,
-              explanation: `Detected 5+ strictly alternating bids between users ${userA.substring(0, 8)} and ${userB.substring(0, 8)}, indicating possible coordinated price inflation.`,
+              explanation: `Rule match: 5+ alternating bids between accounts ${userA.substring(0, 8)} and ${userB.substring(0, 8)}.`,
+              evidenceJson: JSON.stringify({ accounts: [userA, userB], alternatingCount }),
             });
           }
         }
       }
     }
 
-    // Persist new flags (ignore duplicates)
+    // 4. Repeated Non-Payment After Winning
+    const unpaidWinners = await this.prisma.transaction.groupBy({
+      by: ['buyerId'],
+      where: { workflowStatus: { in: ['AWAITING_PAYMENT', 'EXPIRED'] } },
+      _count: true,
+    });
+    for (const row of unpaidWinners) {
+      if (row._count >= 2 && auctions[0]) {
+        flaggedItems.push({
+          auctionId: auctions[0].id,
+          userId: row.buyerId,
+          flagType: 'REPEATED_NON_PAYMENT_WINNER',
+          severity: FlagSeverity.CRITICAL,
+          confidenceScore: 0.91,
+          explanation: `Rule match: buyer has ${row._count} unpaid winning transactions pending or expired.`,
+          evidenceJson: JSON.stringify({ unpaidCount: row._count }),
+        });
+      }
+    }
+
     for (const item of flaggedItems) {
-      await this.prisma.suspiciousActivityFlag.create({
-        data: item,
-      });
+      await this.prisma.suspiciousActivityFlag.create({ data: item });
     }
 
     return {
@@ -133,15 +277,27 @@ export class AnalyticsService {
         auction: { select: { id: true, title: true, currentHighestBid: true } },
         user: { select: { id: true, email: true, profile: { select: { fullName: true } } } },
       },
-      take: 50,
+      take: 60,
     });
   }
 
-  async dismissFlag(flagId: string) {
-    return this.prisma.suspiciousActivityFlag.update({
+  async dismissFlag(flagId: string, adminId?: string, decision = 'DISMISSED') {
+    const updated = await this.prisma.suspiciousActivityFlag.update({
       where: { id: flagId },
-      data: { reviewedByAdmin: true },
+      data: {
+        reviewedByAdmin: true,
+        reviewDecision: decision,
+        reviewedById: adminId || null,
+      },
     });
+    await this.auditService.record({
+      userId: adminId,
+      action: 'RISK_FLAG_REVIEWED',
+      entityType: 'SuspiciousActivityFlag',
+      entityId: flagId,
+      newState: { reviewedByAdmin: true, decision },
+    });
+    return updated;
   }
 
   async getAuditLogs() {
@@ -157,7 +313,7 @@ export class AnalyticsService {
           },
         },
       },
-      take: 50,
+      take: 100,
     });
   }
 
@@ -177,5 +333,26 @@ export class AnalyticsService {
       where: { id: reportId },
       data: { status },
     });
+  }
+
+  async getSettings() {
+    return this.prisma.platformSetting.findMany({ orderBy: { key: 'asc' } });
+  }
+
+  async updateSetting(key: string, value: string, description: string | undefined, adminId: string) {
+    const updated = await this.prisma.platformSetting.upsert({
+      where: { key },
+      update: { value, description, updatedById: adminId },
+      create: { key, value, description, updatedById: adminId },
+    });
+    await this.auditService.record({
+      userId: adminId,
+      action: 'PLATFORM_SETTING_UPDATED',
+      entityType: 'PlatformSetting',
+      entityId: updated.id,
+      newState: { key, value },
+      reason: `Setting ${key} updated by Super Admin`,
+    });
+    return updated;
   }
 }

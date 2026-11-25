@@ -7,6 +7,7 @@ import {
   IsEnum,
   IsDateString,
   IsArray,
+  IsBoolean,
 } from 'class-validator';
 import { ApiProperty, ApiPropertyOptional } from '@nestjs/swagger';
 import { ItemCondition } from '@prisma/client';
@@ -69,4 +70,29 @@ export class CreateAuctionDto {
   @IsOptional()
   @IsArray()
   imageUrls?: string[];
+
+  @ApiPropertyOptional({ default: false, description: 'Save as draft instead of submitting for approval' })
+  @IsOptional()
+  @IsBoolean()
+  saveAsDraft?: boolean;
+
+  @ApiPropertyOptional({ default: false })
+  @IsOptional()
+  @IsBoolean()
+  requiresInspection?: boolean;
+
+  @ApiPropertyOptional({ default: false })
+  @IsOptional()
+  @IsBoolean()
+  requiresBidSecurity?: boolean;
+
+  @ApiPropertyOptional({ default: false })
+  @IsOptional()
+  @IsBoolean()
+  isRestricted?: boolean;
+
+  @ApiPropertyOptional()
+  @IsOptional()
+  @IsString()
+  bidSecurityPolicyId?: string;
 }

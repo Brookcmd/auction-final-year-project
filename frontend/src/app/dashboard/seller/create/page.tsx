@@ -4,16 +4,7 @@ import React, { useState, useEffect } from 'react';
 import { useRouter } from 'next/navigation';
 import { useAuth } from '@/context/AuthContext';
 import { apiRequest } from '@/lib/api';
-import {
-  Gavel,
-  PlusCircle,
-  Image as ImageIcon,
-  Calendar,
-  DollarSign,
-  MapPin,
-  ArrowRight,
-  AlertCircle,
-} from 'lucide-react';
+import { PlusCircle, AlertCircle } from 'lucide-react';
 
 export default function CreateAuctionPage() {
   const { user, isLoading } = useAuth();
@@ -32,12 +23,19 @@ export default function CreateAuctionPage() {
   const [imageUrl, setImageUrl] = useState(
     'https://images.unsplash.com/photo-1533473359331-0135ef1b58bf?auto=format&fit=crop&w=1200&q=80',
   );
+  const [saveAsDraft, setSaveAsDraft] = useState(false);
+  const [requiresInspection, setRequiresInspection] = useState(true);
+  const [requiresBidSecurity, setRequiresBidSecurity] = useState(false);
+  const [isRestricted, setIsRestricted] = useState(false);
 
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
   useEffect(() => {
-    if (!isLoading && (!user || (user.role !== 'SELLER' && user.role !== 'ADMIN'))) {
+    if (
+      !isLoading &&
+      (!user || (user.role !== 'SELLER' && user.role !== 'SUPER_ADMIN' && user.role !== 'ADMIN'))
+    ) {
       router.push('/login');
       return;
     }
@@ -57,7 +55,7 @@ export default function CreateAuctionPage() {
       const now = new Date();
       const endTime = new Date(now.getTime() + durationHours * 60 * 60 * 1000);
 
-      const created = await apiRequest('/auctions', {
+      await apiRequest('/auctions', {
         method: 'POST',
         body: JSON.stringify({
           title,
@@ -71,10 +69,14 @@ export default function CreateAuctionPage() {
           startTime: now.toISOString(),
           endTime: endTime.toISOString(),
           imageUrls: [imageUrl],
+          saveAsDraft,
+          requiresInspection,
+          requiresBidSecurity,
+          isRestricted,
         }),
       });
 
-      router.push(`/auctions/${created.id}`);
+      router.push('/dashboard/seller');
     } catch (err: any) {
       setError(err.message || 'Failed to create auction');
       setSubmitting(false);
@@ -85,10 +87,10 @@ export default function CreateAuctionPage() {
     <div className="max-w-4xl mx-auto px-4 sm:px-6 lg:px-8 py-10 space-y-8">
       <div>
         <h1 className="text-2xl sm:text-3xl font-extrabold text-navy-900 tracking-tight">
-          Create Auction Listing
+          Submit Auction Listing
         </h1>
         <p className="text-xs sm:text-sm text-slate-500 mt-1">
-          Publish an asset or inventory lot to BIDORA’s verified marketplace with server-controlled timers.
+          Listings enter BIDORA’s centralized approval and inspection pipeline before going live.
         </p>
       </div>
 
@@ -100,7 +102,6 @@ export default function CreateAuctionPage() {
       )}
 
       <form onSubmit={handleSubmit} className="bg-white p-6 sm:p-8 rounded-2xl border border-slate-200/80 shadow-sm space-y-6">
-        {/* Title */}
         <div>
           <label className="block text-xs font-semibold text-slate-700 mb-1.5">Product Title</label>
           <input
@@ -113,7 +114,6 @@ export default function CreateAuctionPage() {
           />
         </div>
 
-        {/* Category & Condition */}
         <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
           <div>
             <label className="block text-xs font-semibold text-slate-700 mb-1.5">Category</label>
@@ -145,7 +145,6 @@ export default function CreateAuctionPage() {
           </div>
         </div>
 
-        {/* Description */}
         <div>
           <label className="block text-xs font-semibold text-slate-700 mb-1.5">Description & Specifications</label>
           <textarea
@@ -158,12 +157,9 @@ export default function CreateAuctionPage() {
           />
         </div>
 
-        {/* Pricing & Increments (ETB) */}
         <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
           <div>
-            <label className="block text-xs font-semibold text-slate-700 mb-1.5">
-              Starting Price (ETB)
-            </label>
+            <label className="block text-xs font-semibold text-slate-700 mb-1.5">Starting Price (ETB)</label>
             <input
               type="number"
               min={1}
@@ -174,9 +170,7 @@ export default function CreateAuctionPage() {
             />
           </div>
           <div>
-            <label className="block text-xs font-semibold text-slate-700 mb-1.5">
-              Min Bid Increment (ETB)
-            </label>
+            <label className="block text-xs font-semibold text-slate-700 mb-1.5">Min Bid Increment (ETB)</label>
             <input
               type="number"
               min={1}
@@ -187,42 +181,33 @@ export default function CreateAuctionPage() {
             />
           </div>
           <div>
-            <label className="block text-xs font-semibold text-slate-700 mb-1.5">
-              Secret Reserve Price (Optional ETB)
-            </label>
+            <label className="block text-xs font-semibold text-slate-700 mb-1.5">Reserve Price (Optional ETB)</label>
             <input
               type="number"
               min={1}
               value={reservePrice || ''}
               onChange={(e) => setReservePrice(e.target.value ? Number(e.target.value) : undefined)}
-              placeholder="e.g. 500,000"
               className="w-full px-3 py-2.5 rounded-xl border border-slate-300 font-mono text-xs focus:outline-none"
             />
           </div>
         </div>
 
-        {/* Duration & City */}
         <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
           <div>
-            <label className="block text-xs font-semibold text-slate-700 mb-1.5">
-              Auction Duration
-            </label>
+            <label className="block text-xs font-semibold text-slate-700 mb-1.5">Duration</label>
             <select
               value={durationHours}
               onChange={(e) => setDurationHours(Number(e.target.value))}
               className="w-full px-3 py-2.5 rounded-xl border border-slate-300 text-xs focus:outline-none"
             >
               <option value={1}>1 Hour (Quick Test)</option>
-              <option value={24}>24 Hours (1 Day)</option>
-              <option value={48}>48 Hours (2 Days)</option>
-              <option value={72}>72 Hours (3 Days)</option>
-              <option value={168}>7 Days</option>
+              <option value={24}>24 Hours</option>
+              <option value={48}>48 Hours</option>
+              <option value={72}>72 Hours</option>
             </select>
           </div>
           <div>
-            <label className="block text-xs font-semibold text-slate-700 mb-1.5">
-              Location City
-            </label>
+            <label className="block text-xs font-semibold text-slate-700 mb-1.5">Location City</label>
             <input
               type="text"
               required
@@ -233,11 +218,8 @@ export default function CreateAuctionPage() {
           </div>
         </div>
 
-        {/* Image URL */}
         <div>
-          <label className="block text-xs font-semibold text-slate-700 mb-1.5">
-            Cover Image URL (Direct HTTPS or Cloudinary)
-          </label>
+          <label className="block text-xs font-semibold text-slate-700 mb-1.5">Cover Image URL</label>
           <input
             type="url"
             required
@@ -247,13 +229,33 @@ export default function CreateAuctionPage() {
           />
         </div>
 
+        {/* Governance & Safeguard Flags */}
+        <div className="p-4 bg-slate-50 rounded-xl border border-slate-200 grid grid-cols-1 sm:grid-cols-2 gap-3 text-xs">
+          <label className="flex items-center gap-2 cursor-pointer">
+            <input type="checkbox" checked={requiresInspection} onChange={(e) => setRequiresInspection(e.target.checked)} />
+            <span>Require Independent Inspection Report</span>
+          </label>
+          <label className="flex items-center gap-2 cursor-pointer">
+            <input type="checkbox" checked={requiresBidSecurity} onChange={(e) => setRequiresBidSecurity(e.target.checked)} />
+            <span>Require Buyer Bid Security Deposit</span>
+          </label>
+          <label className="flex items-center gap-2 cursor-pointer">
+            <input type="checkbox" checked={isRestricted} onChange={(e) => setIsRestricted(e.target.checked)} />
+            <span>Restricted Auction (KYC Approved Bidders Only)</span>
+          </label>
+          <label className="flex items-center gap-2 cursor-pointer">
+            <input type="checkbox" checked={saveAsDraft} onChange={(e) => setSaveAsDraft(e.target.checked)} />
+            <span>Save as Draft (Submit Later)</span>
+          </label>
+        </div>
+
         <button
           type="submit"
           disabled={submitting}
           className="w-full bg-blue-600 hover:bg-blue-700 disabled:opacity-50 text-white font-bold py-3.5 rounded-xl shadow-md transition-all text-sm flex items-center justify-center gap-2"
         >
           <PlusCircle className="w-4 h-4" />
-          {submitting ? 'Publishing Listing...' : 'Publish Live Auction Listing'}
+          {submitting ? 'Submitting...' : saveAsDraft ? 'Save Draft Listing' : 'Submit Listing for Governance Review'}
         </button>
       </form>
     </div>

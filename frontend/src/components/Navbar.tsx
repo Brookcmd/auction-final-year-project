@@ -3,7 +3,7 @@
 import React, { useState, useEffect } from 'react';
 import Link from 'next/link';
 import { useRouter } from 'next/navigation';
-import { useAuth } from '@/context/AuthContext';
+import { useAuth, getDashboardPathForRole } from '@/context/AuthContext';
 import { apiRequest } from '@/lib/api';
 import { getSocket } from '@/lib/socket';
 import {
@@ -33,7 +33,7 @@ export default function Navbar() {
 
     apiRequest('/notifications')
       .then((res) => setNotifications(Array.isArray(res) ? res : []))
-      .catch(() => { });
+      .catch(() => {});
 
     const socket = getSocket();
     socket.emit('register_user', { token });
@@ -52,7 +52,7 @@ export default function Navbar() {
 
   const handleMarkRead = async (notif: any) => {
     if (!notif.isRead) {
-      await apiRequest(`/notifications/${notif.id}/read`, { method: 'PUT' }).catch(() => { });
+      await apiRequest(`/notifications/${notif.id}/read`, { method: 'PUT' }).catch(() => {});
       setNotifications((prev) =>
         prev.map((n) => (n.id === notif.id ? { ...n, isRead: true } : n)),
       );
@@ -64,9 +64,11 @@ export default function Navbar() {
   };
 
   const handleMarkAllRead = async () => {
-    await apiRequest('/notifications/read-all', { method: 'PUT' }).catch(() => { });
+    await apiRequest('/notifications/read-all', { method: 'PUT' }).catch(() => {});
     setNotifications((prev) => prev.map((n) => ({ ...n, isRead: true })));
   };
+
+  const dashboardHref = getDashboardPathForRole(user?.role);
 
   return (
     <header className="sticky top-0 z-50 bg-white/95 backdrop-blur-md border-b border-slate-200">
@@ -88,7 +90,7 @@ export default function Navbar() {
           </Link>
 
           {/* Navigation Links */}
-          <nav className="hidden md:flex items-center gap-8">
+          <nav className="hidden md:flex items-center gap-7">
             <Link
               href="/auctions"
               className="text-sm font-medium text-slate-700 hover:text-blue-600 flex items-center gap-1.5 transition-colors"
@@ -102,13 +104,13 @@ export default function Navbar() {
             >
               How It Works
             </Link>
-            {user?.role === 'ADMIN' && (
+            {(user?.role === 'SUPER_ADMIN' || user?.role === 'ADMIN') && (
               <Link
                 href="/dashboard/admin"
-                className="text-sm font-medium text-amber-600 hover:text-amber-700 flex items-center gap-1 bg-amber-50 px-2.5 py-1 rounded-full border border-amber-200"
+                className="text-sm font-medium text-amber-700 hover:text-amber-800 flex items-center gap-1 bg-amber-50 px-2.5 py-1 rounded-full border border-amber-200"
               >
                 <ShieldCheck className="w-4 h-4" />
-                Admin Console
+                Super Admin
               </Link>
             )}
           </nav>
@@ -117,8 +119,7 @@ export default function Navbar() {
           <div className="flex items-center gap-3">
             {user ? (
               <div className="flex items-center gap-2.5">
-                {/* Seller Create Auction CTA */}
-                {(user.role === 'SELLER' || user.role === 'ADMIN') && (
+                {(user.role === 'SELLER' || user.role === 'SUPER_ADMIN' || user.role === 'ADMIN') && (
                   <Link
                     href="/dashboard/seller/create"
                     className="hidden sm:flex items-center gap-1.5 bg-blue-600 hover:bg-blue-700 text-white text-xs font-semibold px-3 py-2 rounded-lg shadow-sm transition-all"
@@ -128,22 +129,15 @@ export default function Navbar() {
                   </Link>
                 )}
 
-                {/* Dashboard Shortcut */}
                 <Link
-                  href={
-                    user.role === 'ADMIN'
-                      ? '/dashboard/admin'
-                      : user.role === 'SELLER'
-                        ? '/dashboard/seller'
-                        : '/dashboard/buyer'
-                  }
+                  href={dashboardHref}
                   className="flex items-center gap-1.5 text-xs font-medium text-slate-700 hover:text-blue-600 bg-slate-100 hover:bg-slate-200 px-3 py-2 rounded-lg transition-colors"
                 >
                   <LayoutDashboard className="w-4 h-4 text-blue-600" />
-                  <span className="hidden sm:inline">Dashboard</span>
+                  <span className="hidden sm:inline">My Workspace</span>
                 </Link>
 
-                {/* Live Notification Bell */}
+                {/* Notification Bell */}
                 <div className="relative">
                   <button
                     onClick={() => {
@@ -178,16 +172,15 @@ export default function Navbar() {
                       </div>
                       <div className="max-h-72 overflow-y-auto divide-y divide-slate-50">
                         {notifications.length === 0 ? (
-                          <p className="text-xs text-slate-400 text-center py-6">
-                            No notifications yet.
-                          </p>
+                          <p className="text-xs text-slate-400 text-center py-6">No notifications yet.</p>
                         ) : (
                           notifications.slice(0, 10).map((n) => (
                             <button
                               key={n.id}
                               onClick={() => handleMarkRead(n)}
-                              className={`w-full text-left px-4 py-3 hover:bg-slate-50 transition-colors ${!n.isRead ? 'bg-blue-50/40' : ''
-                                }`}
+                              className={`w-full text-left px-4 py-3 hover:bg-slate-50 transition-colors ${
+                                !n.isRead ? 'bg-blue-50/40' : ''
+                              }`}
                             >
                               <div className="flex items-start justify-between gap-2">
                                 <span className="text-xs font-semibold text-navy-900">{n.title}</span>
@@ -195,9 +188,7 @@ export default function Navbar() {
                                   <span className="w-2 h-2 rounded-full bg-blue-600 mt-1 flex-shrink-0"></span>
                                 )}
                               </div>
-                              <p className="text-[11px] text-slate-600 mt-0.5 line-clamp-2">
-                                {n.message}
-                              </p>
+                              <p className="text-[11px] text-slate-600 mt-0.5 line-clamp-2">{n.message}</p>
                               <span className="text-[10px] text-slate-400 mt-1 block">
                                 {new Date(n.createdAt).toLocaleString()}
                               </span>
@@ -227,7 +218,7 @@ export default function Navbar() {
                   </button>
 
                   {dropdownOpen && (
-                    <div className="absolute right-0 mt-2 w-56 bg-white rounded-xl shadow-xl border border-slate-100 py-1.5 z-50">
+                    <div className="absolute right-0 mt-2 w-60 bg-white rounded-xl shadow-xl border border-slate-100 py-1.5 z-50">
                       <div className="px-4 py-2 border-b border-slate-100">
                         <p className="text-xs text-slate-500 font-medium">Signed in as</p>
                         <p className="text-xs font-semibold text-slate-900 truncate">{user.email}</p>
@@ -236,19 +227,26 @@ export default function Navbar() {
                         </span>
                       </div>
                       <Link
+                        href={dashboardHref}
+                        onClick={() => setDropdownOpen(false)}
+                        className="block px-4 py-2 text-xs font-semibold text-blue-700 hover:bg-blue-50"
+                      >
+                        Role Dashboard ({user.role})
+                      </Link>
+                      <Link
                         href="/dashboard/buyer"
                         onClick={() => setDropdownOpen(false)}
                         className="block px-4 py-2 text-xs text-slate-700 hover:bg-slate-50"
                       >
-                        Buyer Bids & Won Lots
+                        Buyer Bids, Deposits & Disputes
                       </Link>
-                      {(user.role === 'SELLER' || user.role === 'ADMIN') && (
+                      {(user.role === 'SELLER' || user.role === 'SUPER_ADMIN' || user.role === 'ADMIN') && (
                         <Link
                           href="/dashboard/seller"
                           onClick={() => setDropdownOpen(false)}
                           className="block px-4 py-2 text-xs text-slate-700 hover:bg-slate-50"
                         >
-                          Seller Management
+                          Seller Listings & Inspections
                         </Link>
                       )}
                       <Link
@@ -257,7 +255,7 @@ export default function Navbar() {
                         className="px-4 py-2 text-xs text-slate-700 hover:bg-slate-50 flex items-center gap-1.5"
                       >
                         <UserCheck className="w-3.5 h-3.5 text-emerald-600" />
-                        Profile & KYC Verification
+                        Profile, Preferences & KYC
                       </Link>
                       <button
                         onClick={() => {

@@ -86,8 +86,8 @@ export class AuthService {
       throw new UnauthorizedException('Invalid email or password');
     }
 
-    if (user.status === 'SUSPENDED') {
-      throw new UnauthorizedException('Account has been suspended by administration');
+    if (user.status === 'SUSPENDED' || user.status === 'BANNED') {
+      throw new UnauthorizedException(`Account has been ${user.status.toLowerCase()} by administration`);
     }
 
     const tokens = await this.generateTokens(user.id, user.email, user.role);

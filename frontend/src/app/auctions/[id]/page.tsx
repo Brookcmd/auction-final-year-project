@@ -10,6 +10,7 @@ import { useAuth } from '@/context/AuthContext';
 import { formatETB } from '@/lib/utils';
 import CountdownTimer from '@/components/CountdownTimer';
 import AuctionCard from '@/components/AuctionCard';
+import QrCodeBadge from '@/components/QrCodeBadge';
 import {
   Gavel,
   ShieldCheck,
@@ -24,6 +25,9 @@ import {
   Share2,
   Eye,
   Flag,
+  FileCheck,
+  Lock,
+  QrCode,
 } from 'lucide-react';
 
 function BidSparkline({ bids, startingPrice }: { bids: any[]; startingPrice: number }) {
@@ -108,8 +112,14 @@ export default function AuctionDetailPage() {
   // Anti-sniping notification toast state
   const [snipingAlert, setSnipingAlert] = useState(false);
 
-  // Load initial auction data
-  useEffect(() => {
+  // Bid security & restricted participation state
+  const [securityReq, setSecurityReq] = useState<any>(null);
+  const [depositProvider, setDepositProvider] = useState<'TELEBIRR' | 'CBE_BIRR'>('TELEBIRR');
+  const [termsAccepted, setTermsAccepted] = useState(false);
+  const [submittingDeposit, setSubmittingDeposit] = useState(false);
+  const [applyingRestricted, setApplyingRestricted] = useState(false);
+
+  const loadAuction = () => {
     apiRequest(`/auctions/${auctionId}`)
       .then((data) => {
         setAuction(data);
@@ -129,12 +139,23 @@ export default function AuctionDetailPage() {
         setBidAmount(current + inc);
         setProxyMaxAmount(current + inc * 2);
 
+        if (data.requiresBidSecurity) {
+          apiRequest(`/bid-security/auction/${auctionId}/requirement`)
+            .then((req) => setSecurityReq(req))
+            .catch(() => {});
+        }
+
         setLoading(false);
       })
       .catch((err) => {
         console.error(err);
         setLoading(false);
       });
+  };
+
+  // Load initial auction data
+  useEffect(() => {
+    loadAuction();
   }, [auctionId]);
 
   // Connect to WebSocket Room for Real-Time Live Bidding & Viewer Presence
@@ -326,6 +347,50 @@ export default function AuctionDetailPage() {
     }
   };
 
+  const handlePayBidSecurity = async (e: React.FormEvent) => {
+    e.preventDefault();
+    setBidError(null);
+    if (!user) {
+      setBidError('Please sign in first to submit a bid security deposit.');
+      return;
+    }
+    if (!termsAccepted) {
+      setBidError('Please accept the bid security refund & forfeiture terms.');
+      return;
+    }
+    setSubmittingDeposit(true);
+    try {
+      await apiRequest(`/bid-security/auction/${auctionId}/deposit`, {
+        method: 'POST',
+        body: JSON.stringify({ provider: depositProvider, termsAccepted: true }),
+      });
+      setBidSuccess('Simulated bid security deposit confirmed! Bidding is now unlocked.');
+      loadAuction();
+    } catch (err: any) {
+      setBidError(err.message);
+    } finally {
+      setSubmittingDeposit(false);
+    }
+  };
+
+  const handleApplyRestricted = async () => {
+    setBidError(null);
+    if (!user) {
+      setBidError('Please sign in first to apply.');
+      return;
+    }
+    setApplyingRestricted(true);
+    try {
+      await apiRequest(`/auctions/${auctionId}/apply`, { method: 'POST' });
+      setBidSuccess('Application submitted for Auction Manager approval.');
+      loadAuction();
+    } catch (err: any) {
+      setBidError(err.message);
+    } finally {
+      setApplyingRestricted(false);
+    }
+  };
+
   if (loading) {
     return (
       <div className="min-h-[60vh] flex items-center justify-center">
@@ -506,16 +571,16 @@ export default function AuctionDetailPage() {
             </div>
           </div>
 
-          {/* Seller Card */}
-          <div className="bg-slate-50 p-5 rounded-2xl border border-slate-200 flex items-center justify-between">
-            <div className="flex items-center gap-3">
-              <div className="w-12 h-12 rounded-xl bg-navy-900 text-white flex items-center justify-center font-bold text-base">
+          {/* Seller Card & QR Verification */}
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+            <div className="bg-slate-50 p-5 rounded-2xl border border-slate-200 flex items-center gap-3">
+              <div className="w-12 h-12 rounded-xl bg-navy-900 text-white flex items-center justify-center font-bold text-base flex-shrink-0">
                 {auction.seller?.profile?.fullName?.[0] || 'S'}
               </div>
               <div>
-                <div className="flex items-center gap-1.5">
+                <div className="flex items-center gap-1.5 flex-wrap">
                   <h4 className="text-xs sm:text-sm font-bold text-navy-900">
-                    {auction.seller?.profile?.fullName || auction.seller?.email}
+                    {auction.seller?.profile?.fullName || 'Verified Merchant'}
                   </h4>
                   {auction.seller?.profile?.isKycVerified && (
                     <span className="inline-flex items-center gap-1 text-[10px] font-bold text-emerald-700 bg-emerald-100 px-2 py-0.5 rounded-full">
@@ -524,11 +589,85 @@ export default function AuctionDetailPage() {
                   )}
                 </div>
                 <p className="text-[11px] text-slate-500 mt-0.5">
-                  Registered seller based in {auction.seller?.profile?.city || 'Ethiopia'}
+                  Based in {auction.seller?.profile?.city || 'Ethiopia'}
                 </p>
               </div>
             </div>
+
+            {auction.itemCode && (
+              <div className="bg-slate-50 p-4 rounded-2xl border border-slate-200 flex items-center justify-between gap-3">
+                <div className="space-y-1">
+                  <span className="text-[10px] font-bold uppercase tracking-wider text-slate-400 flex items-center gap-1">
+                    <QrCode className="w-3 h-3 text-blue-600" /> Item Verification QR
+                  </span>
+                  <span className="text-xs font-mono font-bold text-navy-900 block">
+                    {auction.itemCode}
+                  </span>
+                  <Link
+                    href={`/verify/${auction.itemCode}`}
+                    className="text-[11px] font-semibold text-blue-600 hover:underline inline-block"
+                  >
+                    Open Public Verification Page
+                  </Link>
+                </div>
+                <QrCodeBadge itemCode={auction.itemCode} size={70} />
+              </div>
+            )}
           </div>
+
+          {/* Approved Independent Inspection Report */}
+          {auction.inspectionReports && auction.inspectionReports.length > 0 && (
+            <div className="bg-white p-6 rounded-2xl border border-emerald-200 shadow-sm space-y-4">
+              <div className="flex flex-wrap items-center justify-between gap-2">
+                <div className="flex items-center gap-2">
+                  <FileCheck className="w-5 h-5 text-emerald-600" />
+                  <h3 className="font-bold text-navy-900 text-sm">
+                    Approved Independent Inspection Report ({auction.inspectionReports[0].reportCode})
+                  </h3>
+                </div>
+                <span className="text-xs font-bold bg-emerald-100 text-emerald-800 px-3 py-1 rounded-full">
+                  Condition Grade: {auction.inspectionReports[0].conditionGrade}
+                </span>
+              </div>
+
+              <div className="text-xs text-slate-600 space-y-2">
+                <p>
+                  <strong>Partner:</strong> {auction.inspectionReports[0].partner?.companyName} •{' '}
+                  <strong>Location:</strong> {auction.inspectionReports[0].inspectionLocation}
+                </p>
+                <p className="text-slate-700">{auction.inspectionReports[0].observations}</p>
+                {auction.inspectionReports[0].defectsAndLimitations && (
+                  <p className="text-amber-800 bg-amber-50 p-2.5 rounded-lg border border-amber-200">
+                    <strong>Defects / Limitations:</strong> {auction.inspectionReports[0].defectsAndLimitations}
+                  </p>
+                )}
+              </div>
+
+              {(() => {
+                try {
+                  const checklist = JSON.parse(auction.inspectionReports[0].checklistJson || '{}');
+                  const entries = Object.entries(checklist);
+                  if (entries.length === 0) return null;
+                  return (
+                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-2 pt-2 border-t border-slate-100 text-[11px]">
+                      {entries.map(([k, v]) => (
+                        <div key={k} className="bg-slate-50 p-2 rounded-lg">
+                          <span className="font-semibold text-navy-900 block">{k}</span>
+                          <span className="text-slate-600">{String(v)}</span>
+                        </div>
+                      ))}
+                    </div>
+                  );
+                } catch {
+                  return null;
+                }
+              })()}
+
+              <p className="text-[10px] text-slate-400 italic pt-1">
+                {auction.inspectionReports[0].disclaimer}
+              </p>
+            </div>
+          )}
         </div>
 
         {/* Right Column: Real-Time Bidding Control Panel (5 Cols) */}
@@ -612,10 +751,91 @@ export default function AuctionDetailPage() {
               </div>
             )}
 
-            {/* Bidding Actions */}
+            {/* Bidding Actions (with Bid Security & Restricted Participation Gates) */}
             {!isEnded ? (
               <div className="space-y-4">
-                <form onSubmit={handlePlaceBid} className="space-y-3">
+                {auction.isRestricted && auction.participationStatus !== 'APPROVED' ? (
+                  <div className="p-4 rounded-xl bg-amber-50 border border-amber-200 space-y-3 text-xs">
+                    <div className="flex items-center gap-2 font-bold text-amber-900">
+                      <Lock className="w-4 h-4" />
+                      <span>Restricted Auction Participation</span>
+                    </div>
+                    <p className="text-amber-800">
+                      {auction.participationStatus === 'PENDING'
+                        ? 'Your participation application is pending Auction Manager approval.'
+                        : 'Only KYC-verified and approved buyers may bid in this auction.'}
+                    </p>
+                    {auction.participationStatus !== 'PENDING' && (
+                      <button
+                        type="button"
+                        onClick={handleApplyRestricted}
+                        disabled={applyingRestricted}
+                        className="w-full bg-amber-600 hover:bg-amber-700 text-white font-semibold py-2.5 rounded-xl"
+                      >
+                        {applyingRestricted ? 'Submitting...' : 'Apply to Participate'}
+                      </button>
+                    )}
+                  </div>
+                ) : auction.requiresBidSecurity &&
+                  (!auction.userDeposit ||
+                    (auction.userDeposit.status !== 'CONFIRMED' &&
+                      auction.userDeposit.status !== 'RESERVED')) ? (
+                  <form
+                    onSubmit={handlePayBidSecurity}
+                    className="p-4 rounded-xl bg-amber-50/90 border border-amber-200 space-y-3 text-xs"
+                  >
+                    <div className="flex items-center justify-between">
+                      <span className="font-bold text-amber-900 flex items-center gap-1.5">
+                        <Lock className="w-4 h-4" /> Bid Security Required
+                      </span>
+                      <span className="font-mono font-extrabold text-navy-900">
+                        {formatETB(securityReq?.amountETB || 25000)}
+                      </span>
+                    </div>
+                    <p className="text-[11px] text-amber-800 leading-relaxed">
+                      {securityReq?.refundPolicy ||
+                        'A simulated bid bond is required to place bids. Refunded to non-winners after auction close.'}
+                    </p>
+                    <select
+                      value={depositProvider}
+                      onChange={(e: any) => setDepositProvider(e.target.value)}
+                      className="w-full px-3 py-2 rounded-lg border border-amber-300 bg-white text-xs font-medium"
+                    >
+                      <option value="TELEBIRR">Telebirr (Simulated Deposit)</option>
+                      <option value="CBE_BIRR">CBE Birr (Simulated Deposit)</option>
+                    </select>
+                    <label className="flex items-start gap-2 text-[11px] text-slate-700 cursor-pointer">
+                      <input
+                        type="checkbox"
+                        checked={termsAccepted}
+                        onChange={(e) => setTermsAccepted(e.target.checked)}
+                        className="mt-0.5"
+                      />
+                      <span>
+                        I accept the simulated bid security terms and forfeiture review policy.
+                      </span>
+                    </label>
+                    <button
+                      type="submit"
+                      disabled={submittingDeposit}
+                      className="w-full bg-navy-900 hover:bg-blue-600 text-white font-bold py-2.5 rounded-xl transition-colors"
+                    >
+                      {submittingDeposit
+                        ? 'Confirming Simulated Deposit...'
+                        : `Pay Simulated Deposit (${formatETB(securityReq?.amountETB || 25000)})`}
+                    </button>
+                  </form>
+                ) : (
+                  <>
+                    {auction.requiresBidSecurity && auction.userDeposit && (
+                      <div className="p-2.5 rounded-xl bg-emerald-50 border border-emerald-200 text-emerald-800 text-[11px] flex items-center justify-between">
+                        <span className="flex items-center gap-1.5 font-semibold">
+                          <CheckCircle2 className="w-3.5 h-3.5" /> Bid Security Confirmed (Simulated)
+                        </span>
+                        <span className="font-mono font-bold">{formatETB(auction.userDeposit.amount)}</span>
+                      </div>
+                    )}
+                    <form onSubmit={handlePlaceBid} className="space-y-3">
                   <div>
                     <div className="flex items-center justify-between mb-1.5">
                       <label className="text-xs font-semibold text-slate-700">
@@ -673,39 +893,41 @@ export default function AuctionDetailPage() {
                   </button>
                 </div>
 
-                {showProxyModal && (
-                  <form onSubmit={handleSetProxyBid} className="p-4 bg-slate-50 rounded-xl border border-slate-200 space-y-3">
-                    <div>
-                      <span className="text-xs font-bold text-navy-900 block">Automatic Proxy Bidding</span>
-                      <p className="text-[11px] text-slate-500">
-                        Enter your maximum ceiling. The system will automatically place the minimum necessary
-                        counter-bids on your behalf without exposing your limit.
-                      </p>
-                    </div>
-                    <input
-                      type="number"
-                      min={minValidBid}
-                      step={increment}
-                      value={proxyMaxAmount}
-                      onChange={(e) => setProxyMaxAmount(Number(e.target.value))}
-                      className="w-full px-3 py-2 rounded-lg border border-slate-300 font-mono text-xs focus:outline-none"
-                    />
-                    <div className="flex gap-2">
-                      <button
-                        type="submit"
-                        className="bg-navy-900 text-white text-xs font-semibold px-4 py-2 rounded-lg"
-                      >
-                        Activate Proxy
-                      </button>
-                      <button
-                        type="button"
-                        onClick={() => setShowProxyModal(false)}
-                        className="text-xs text-slate-500 px-3 py-2"
-                      >
-                        Cancel
-                      </button>
-                    </div>
-                  </form>
+                    {showProxyModal && (
+                      <form onSubmit={handleSetProxyBid} className="p-4 bg-slate-50 rounded-xl border border-slate-200 space-y-3">
+                        <div>
+                          <span className="text-xs font-bold text-navy-900 block">Automatic Proxy Bidding</span>
+                          <p className="text-[11px] text-slate-500">
+                            Enter your maximum ceiling. The system will automatically place the minimum necessary
+                            counter-bids on your behalf without exposing your limit.
+                          </p>
+                        </div>
+                        <input
+                          type="number"
+                          min={minValidBid}
+                          step={increment}
+                          value={proxyMaxAmount}
+                          onChange={(e) => setProxyMaxAmount(Number(e.target.value))}
+                          className="w-full px-3 py-2 rounded-lg border border-slate-300 font-mono text-xs focus:outline-none"
+                        />
+                        <div className="flex gap-2">
+                          <button
+                            type="submit"
+                            className="bg-navy-900 text-white text-xs font-semibold px-4 py-2 rounded-lg"
+                          >
+                            Activate Proxy
+                          </button>
+                          <button
+                            type="button"
+                            onClick={() => setShowProxyModal(false)}
+                            className="text-xs text-slate-500 px-3 py-2"
+                          >
+                            Cancel
+                          </button>
+                        </div>
+                      </form>
+                    )}
+                  </>
                 )}
               </div>
             ) : (

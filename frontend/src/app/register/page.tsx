@@ -3,7 +3,7 @@
 import React, { useState } from 'react';
 import Link from 'next/link';
 import { useRouter } from 'next/navigation';
-import { useAuth } from '@/context/AuthContext';
+import { useAuth, getDashboardPathForRole } from '@/context/AuthContext';
 import { Gavel, Mail, Lock, User, MapPin, Phone, ArrowRight } from 'lucide-react';
 
 export default function RegisterPage() {
@@ -15,7 +15,7 @@ export default function RegisterPage() {
   const [password, setPassword] = useState('');
   const [phoneNumber, setPhoneNumber] = useState('');
   const [city, setCity] = useState('Addis Ababa');
-  const [role, setRole] = useState<'BUYER' | 'SELLER'>('BUYER');
+  const [role, setRole] = useState<'BUYER' | 'SELLER' | 'INSPECTION_PARTNER'>('BUYER');
 
   const [error, setError] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
@@ -26,7 +26,7 @@ export default function RegisterPage() {
     setLoading(true);
 
     try {
-      await register({
+      const created = await register({
         fullName,
         email,
         password,
@@ -34,7 +34,7 @@ export default function RegisterPage() {
         city,
         role,
       });
-      router.push('/auctions');
+      router.push(getDashboardPathForRole(created.role));
     } catch (err: any) {
       setError(err.message || 'Registration failed.');
     } finally {
@@ -52,7 +52,7 @@ export default function RegisterPage() {
           Create Your BIDORA Account
         </h2>
         <p className="text-xs text-slate-500">
-          Join Ethiopia's real-time civic & commercial bidding ecosystem.
+          Register as a Buyer, Seller, or Independent Inspection Partner.
         </p>
       </div>
 
@@ -65,34 +65,29 @@ export default function RegisterPage() {
           )}
 
           <form onSubmit={handleSubmit} className="space-y-4">
-            {/* Role Picker */}
             <div>
               <label className="block text-xs font-semibold text-slate-700 mb-1.5">
-                I am registering as:
+                Account Role:
               </label>
-              <div className="grid grid-cols-2 gap-3">
-                <button
-                  type="button"
-                  onClick={() => setRole('BUYER')}
-                  className={`p-2.5 rounded-xl border text-xs font-bold transition-all text-center ${
-                    role === 'BUYER'
-                      ? 'border-blue-600 bg-blue-50 text-blue-900 shadow-sm'
-                      : 'border-slate-200 text-slate-600 hover:bg-slate-50'
-                  }`}
-                >
-                  🏷️ Buyer / Bidder
-                </button>
-                <button
-                  type="button"
-                  onClick={() => setRole('SELLER')}
-                  className={`p-2.5 rounded-xl border text-xs font-bold transition-all text-center ${
-                    role === 'SELLER'
-                      ? 'border-blue-600 bg-blue-50 text-blue-900 shadow-sm'
-                      : 'border-slate-200 text-slate-600 hover:bg-slate-50'
-                  }`}
-                >
-                  💼 Merchant / Seller
-                </button>
+              <div className="grid grid-cols-3 gap-2">
+                {[
+                  { id: 'BUYER', label: 'Buyer' },
+                  { id: 'SELLER', label: 'Seller' },
+                  { id: 'INSPECTION_PARTNER', label: 'Inspector' },
+                ].map((opt) => (
+                  <button
+                    key={opt.id}
+                    type="button"
+                    onClick={() => setRole(opt.id as any)}
+                    className={`p-2 rounded-xl border text-xs font-bold transition-all text-center ${
+                      role === opt.id
+                        ? 'border-blue-600 bg-blue-50 text-blue-900 shadow-sm'
+                        : 'border-slate-200 text-slate-600 hover:bg-slate-50'
+                    }`}
+                  >
+                    {opt.label}
+                  </button>
+                ))}
               </div>
             </div>
 
@@ -128,7 +123,7 @@ export default function RegisterPage() {
 
             <div className="grid grid-cols-2 gap-3">
               <div>
-                <label className="block text-xs font-semibold text-slate-700 mb-1">Phone (Optional)</label>
+                <label className="block text-xs font-semibold text-slate-700 mb-1">Phone</label>
                 <div className="relative">
                   <Phone className="w-3.5 h-3.5 text-slate-400 absolute left-3 top-3" />
                   <input

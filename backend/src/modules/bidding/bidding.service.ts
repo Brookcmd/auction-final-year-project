@@ -98,6 +98,30 @@ export class BiddingService {
         throw new BadRequestException('You are already the current highest bidder');
       }
 
+      // 3b. Restricted Auction Eligibility Check
+      if ((auction as any).isRestricted) {
+        const participation = await this.prisma.auctionParticipation?.findUnique({
+          where: { auctionId_userId: { auctionId, userId } },
+        });
+        if (!participation || participation.status !== 'APPROVED') {
+          throw new ForbiddenException(
+            'This is a restricted auction. You must apply and receive approval before bidding.',
+          );
+        }
+      }
+
+      // 3c. Bid Security Deposit Eligibility Check
+      if ((auction as any).requiresBidSecurity) {
+        const deposit = await this.prisma.bidSecurityDeposit?.findUnique({
+          where: { buyerId_auctionId: { buyerId: userId, auctionId } },
+        });
+        if (!deposit || (deposit.status !== 'CONFIRMED' && deposit.status !== 'RESERVED')) {
+          throw new ForbiddenException(
+            'A confirmed bid security deposit is required before placing bids on this auction.',
+          );
+        }
+      }
+
       const currentHighest = Number(auction.currentHighestBid);
       const increment = Number(auction.bidIncrement);
       const minRequiredBid = currentHighest + increment;

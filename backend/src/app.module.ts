@@ -11,6 +11,9 @@ import { BiddingModule } from './modules/bidding/bidding.module';
 import { NotificationsModule } from './modules/notifications/notifications.module';
 import { TransactionsModule } from './modules/transactions/transactions.module';
 import { AnalyticsModule } from './modules/analytics/analytics.module';
+import { BidSecurityModule } from './modules/bid-security/bid-security.module';
+import { InspectionsModule } from './modules/inspections/inspections.module';
+import { DisputesModule } from './modules/disputes/disputes.module';
 
 @Module({
   imports: [
@@ -29,6 +32,9 @@ import { AnalyticsModule } from './modules/analytics/analytics.module';
     NotificationsModule,
     TransactionsModule,
     AnalyticsModule,
+    BidSecurityModule,
+    InspectionsModule,
+    DisputesModule,
   ],
 })
 export class AppModule {}

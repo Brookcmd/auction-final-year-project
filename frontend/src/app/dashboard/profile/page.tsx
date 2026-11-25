@@ -12,6 +12,7 @@ import {
   CheckCircle2,
   AlertCircle,
   FileCheck,
+  Bell,
 } from 'lucide-react';
 
 export default function ProfileKycPage() {
@@ -23,10 +24,23 @@ export default function ProfileKycPage() {
   const [phoneNumber, setPhoneNumber] = useState('');
   const [city, setCity] = useState('');
   const [address, setAddress] = useState('');
+  const [businessName, setBusinessName] = useState('');
+  const [businessRegNumber, setBusinessRegNumber] = useState('');
 
   const [idType, setIdType] = useState('Ethiopian National ID (Fayda)');
+  const [idNumber, setIdNumber] = useState('');
   const [documentFrontUrl, setDocumentFrontUrl] = useState('');
   const [documentBackUrl, setDocumentBackUrl] = useState('');
+  const [businessDocUrl, setBusinessDocUrl] = useState('');
+
+  const [prefs, setPrefs] = useState<any>({
+    inAppEnabled: true,
+    emailEnabled: true,
+    outbidAlerts: true,
+    auctionAlerts: true,
+    disputeAlerts: true,
+    adminAlerts: true,
+  });
 
   const [statusMsg, setStatusMsg] = useState<string | null>(null);
   const [errorMsg, setErrorMsg] = useState<string | null>(null);
@@ -46,6 +60,9 @@ export default function ProfileKycPage() {
           setPhoneNumber(res.profile?.phoneNumber || '');
           setCity(res.profile?.city || 'Addis Ababa');
           setAddress(res.profile?.address || '');
+          setBusinessName(res.profile?.businessName || '');
+          setBusinessRegNumber(res.profile?.businessRegNumber || '');
+          if (res.notificationPref) setPrefs(res.notificationPref);
         })
         .catch(() => {});
     }
@@ -60,9 +77,20 @@ export default function ProfileKycPage() {
     try {
       await apiRequest('/users/profile', {
         method: 'PUT',
-        body: JSON.stringify({ fullName, phoneNumber, city, address }),
+        body: JSON.stringify({
+          fullName,
+          phoneNumber,
+          city,
+          address,
+          businessName: businessName || undefined,
+          businessRegNumber: businessRegNumber || undefined,
+        }),
       });
-      setStatusMsg('Profile details updated successfully.');
+      await apiRequest('/users/notification-preferences', {
+        method: 'PUT',
+        body: JSON.stringify(prefs),
+      });
+      setStatusMsg('Profile and notification preferences updated successfully.');
     } catch (err: any) {
       setErrorMsg(err.message || 'Failed to update profile.');
     } finally {
@@ -79,14 +107,23 @@ export default function ProfileKycPage() {
       await apiRequest('/users/verification-request', {
         method: 'POST',
         body: JSON.stringify({
+          applicantType: user?.role === 'SELLER' ? 'SELLER' : 'BUYER',
+          legalName: fullName,
+          phoneNumber,
           idType,
+          idNumber,
+          address,
           documentFrontUrl,
           documentBackUrl: documentBackUrl || undefined,
+          businessName: businessName || undefined,
+          businessRegNumber: businessRegNumber || undefined,
+          businessDocUrl: businessDocUrl || undefined,
         }),
       });
-      setStatusMsg('KYC verification request submitted for administrator review.');
+      setStatusMsg('Verification application submitted for Verification Officer review.');
       setDocumentFrontUrl('');
       setDocumentBackUrl('');
+      setBusinessDocUrl('');
     } catch (err: any) {
       setErrorMsg(err.message || 'Failed to submit verification.');
     }
@@ -100,27 +137,28 @@ export default function ProfileKycPage() {
     );
   }
 
+  const verificationStatus = profileData.profile?.verificationStatus || 'NOT_SUBMITTED';
   const isVerified = profileData.profile?.isKycVerified;
 
   return (
-    <div className="max-w-4xl mx-auto px-4 sm:px-6 lg:px-8 py-10 space-y-8">
+    <div className="max-w-5xl mx-auto px-4 sm:px-6 lg:px-8 py-10 space-y-8">
       <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
         <div>
           <h1 className="text-2xl sm:text-3xl font-extrabold text-navy-900 tracking-tight">
-            Profile & Identity Verification
+            Profile, KYC Verification & Preferences
           </h1>
           <p className="text-xs sm:text-sm text-slate-500 mt-1">
-            Manage your contact information and verified status on BIDORA.
+            Manage personal/business details, confidential identity documents, and alert preferences.
           </p>
         </div>
         <div>
           {isVerified ? (
             <span className="inline-flex items-center gap-1.5 bg-emerald-100 text-emerald-800 text-xs font-bold px-3.5 py-1.5 rounded-full">
-              <ShieldCheck className="w-4 h-4" /> KYC Verified Account
+              <ShieldCheck className="w-4 h-4" /> Verified ({verificationStatus})
             </span>
           ) : (
             <span className="inline-flex items-center gap-1.5 bg-amber-100 text-amber-800 text-xs font-bold px-3.5 py-1.5 rounded-full">
-              <AlertCircle className="w-4 h-4" /> Pending KYC Verification
+              <AlertCircle className="w-4 h-4" /> Status: {verificationStatus}
             </span>
           )}
         </div>
@@ -140,118 +178,185 @@ export default function ProfileKycPage() {
       )}
 
       <div className="grid grid-cols-1 md:grid-cols-2 gap-8">
-        {/* Profile Form */}
         <form onSubmit={handleSaveProfile} className="bg-white p-6 rounded-2xl border border-slate-200 shadow-sm space-y-4">
           <h2 className="text-sm font-bold text-navy-900 flex items-center gap-2">
-            <User className="w-4 h-4 text-blue-600" /> Personal Details
+            <User className="w-4 h-4 text-blue-600" /> Profile & Notification Settings
           </h2>
 
           <div>
-            <label className="block text-xs font-semibold text-slate-700 mb-1">Full Name</label>
+            <label className="block text-xs font-semibold text-slate-700 mb-1">Full Legal Name</label>
             <input
               type="text"
               required
               value={fullName}
               onChange={(e) => setFullName(e.target.value)}
-              className="w-full px-3 py-2 rounded-xl border border-slate-300 text-xs focus:outline-none focus:ring-2 focus:ring-blue-600"
+              className="w-full px-3 py-2 rounded-xl border border-slate-300 text-xs"
             />
           </div>
 
-          <div>
-            <label className="block text-xs font-semibold text-slate-700 mb-1">Phone Number</label>
-            <div className="relative">
-              <Phone className="w-3.5 h-3.5 text-slate-400 absolute left-3 top-2.5" />
-              <input
-                type="text"
-                value={phoneNumber}
-                onChange={(e) => setPhoneNumber(e.target.value)}
-                className="w-full pl-8 pr-3 py-2 rounded-xl border border-slate-300 text-xs focus:outline-none focus:ring-2 focus:ring-blue-600"
-              />
+          <div className="grid grid-cols-2 gap-3">
+            <div>
+              <label className="block text-xs font-semibold text-slate-700 mb-1">Phone Number</label>
+              <div className="relative">
+                <Phone className="w-3.5 h-3.5 text-slate-400 absolute left-3 top-2.5" />
+                <input
+                  type="text"
+                  value={phoneNumber}
+                  onChange={(e) => setPhoneNumber(e.target.value)}
+                  className="w-full pl-8 pr-3 py-2 rounded-xl border border-slate-300 text-xs"
+                />
+              </div>
+            </div>
+            <div>
+              <label className="block text-xs font-semibold text-slate-700 mb-1">City</label>
+              <div className="relative">
+                <MapPin className="w-3.5 h-3.5 text-slate-400 absolute left-3 top-2.5" />
+                <input
+                  type="text"
+                  value={city}
+                  onChange={(e) => setCity(e.target.value)}
+                  className="w-full pl-8 pr-3 py-2 rounded-xl border border-slate-300 text-xs"
+                />
+              </div>
             </div>
           </div>
 
           <div>
-            <label className="block text-xs font-semibold text-slate-700 mb-1">City</label>
-            <div className="relative">
-              <MapPin className="w-3.5 h-3.5 text-slate-400 absolute left-3 top-2.5" />
-              <input
-                type="text"
-                value={city}
-                onChange={(e) => setCity(e.target.value)}
-                className="w-full pl-8 pr-3 py-2 rounded-xl border border-slate-300 text-xs focus:outline-none focus:ring-2 focus:ring-blue-600"
-              />
-            </div>
-          </div>
-
-          <div>
-            <label className="block text-xs font-semibold text-slate-700 mb-1">Street Address</label>
+            <label className="block text-xs font-semibold text-slate-700 mb-1">Address</label>
             <input
               type="text"
               value={address}
               onChange={(e) => setAddress(e.target.value)}
-              className="w-full px-3 py-2 rounded-xl border border-slate-300 text-xs focus:outline-none focus:ring-2 focus:ring-blue-600"
+              className="w-full px-3 py-2 rounded-xl border border-slate-300 text-xs"
             />
+          </div>
+
+          {user?.role === 'SELLER' && (
+            <div className="grid grid-cols-2 gap-3">
+              <input
+                type="text"
+                value={businessName}
+                onChange={(e) => setBusinessName(e.target.value)}
+                placeholder="Business Name"
+                className="w-full px-3 py-2 rounded-xl border border-slate-300 text-xs"
+              />
+              <input
+                type="text"
+                value={businessRegNumber}
+                onChange={(e) => setBusinessRegNumber(e.target.value)}
+                placeholder="Trade License / Reg #"
+                className="w-full px-3 py-2 rounded-xl border border-slate-300 text-xs"
+              />
+            </div>
+          )}
+
+          <div className="pt-2 border-t border-slate-100 space-y-2 text-xs">
+            <span className="font-bold text-navy-900 flex items-center gap-1.5">
+              <Bell className="w-3.5 h-3.5 text-blue-600" /> Notification Preferences
+            </span>
+            <div className="grid grid-cols-2 gap-2">
+              {[
+                { key: 'inAppEnabled', label: 'In-App Alerts' },
+                { key: 'emailEnabled', label: 'Email Alerts' },
+                { key: 'outbidAlerts', label: 'Outbid Alerts' },
+                { key: 'disputeAlerts', label: 'Dispute Updates' },
+              ].map((item) => (
+                <label key={item.key} className="flex items-center gap-2 cursor-pointer">
+                  <input
+                    type="checkbox"
+                    checked={!!prefs[item.key]}
+                    onChange={(e) => setPrefs({ ...prefs, [item.key]: e.target.checked })}
+                  />
+                  <span>{item.label}</span>
+                </label>
+              ))}
+            </div>
           </div>
 
           <button
             type="submit"
             disabled={saving}
-            className="w-full bg-navy-900 hover:bg-blue-600 text-white font-semibold py-2.5 rounded-xl text-xs transition-colors"
+            className="w-full bg-navy-900 hover:bg-blue-600 text-white font-semibold py-2.5 rounded-xl text-xs"
           >
-            {saving ? 'Saving...' : 'Save Profile'}
+            {saving ? 'Saving...' : 'Save Profile & Preferences'}
           </button>
         </form>
 
-        {/* KYC Submission Form */}
         <form onSubmit={handleSubmitKyc} className="bg-white p-6 rounded-2xl border border-slate-200 shadow-sm space-y-4">
           <h2 className="text-sm font-bold text-navy-900 flex items-center gap-2">
-            <FileCheck className="w-4 h-4 text-emerald-600" /> KYC Document Verification
+            <FileCheck className="w-4 h-4 text-emerald-600" /> Identity Verification Application
           </h2>
           <p className="text-[11px] text-slate-500 leading-relaxed">
-            Submit a National ID or business license link to earn the Verified badge and build buyer/seller trust.
+            Documents are restricted to authorized Verification Officers with full document access logging.
           </p>
 
-          <div>
-            <label className="block text-xs font-semibold text-slate-700 mb-1">Document Type</label>
-            <select
-              value={idType}
-              onChange={(e) => setIdType(e.target.value)}
-              className="w-full px-3 py-2 rounded-xl border border-slate-300 text-xs focus:outline-none"
-            >
-              <option value="Ethiopian National ID (Fayda)">Ethiopian National ID (Fayda)</option>
-              <option value="Passport">Passport</option>
-              <option value="Trade License">Commercial Trade License</option>
-            </select>
+          <div className="grid grid-cols-2 gap-3">
+            <div>
+              <label className="block text-xs font-semibold text-slate-700 mb-1">Document Type</label>
+              <select
+                value={idType}
+                onChange={(e) => setIdType(e.target.value)}
+                className="w-full px-3 py-2 rounded-xl border border-slate-300 text-xs"
+              >
+                <option value="Ethiopian National ID (Fayda)">Ethiopian National ID (Fayda)</option>
+                <option value="Passport">Passport</option>
+                <option value="Driving License">Driving License</option>
+              </select>
+            </div>
+            <div>
+              <label className="block text-xs font-semibold text-slate-700 mb-1">ID Number</label>
+              <input
+                type="text"
+                required
+                value={idNumber}
+                onChange={(e) => setIdNumber(e.target.value)}
+                placeholder="FAYDA-..."
+                className="w-full px-3 py-2 rounded-xl border border-slate-300 text-xs"
+              />
+            </div>
           </div>
 
           <div>
-            <label className="block text-xs font-semibold text-slate-700 mb-1">Document Front URL</label>
+            <label className="block text-xs font-semibold text-slate-700 mb-1">Identity Document Front URL</label>
             <input
               type="url"
               required
               value={documentFrontUrl}
               onChange={(e) => setDocumentFrontUrl(e.target.value)}
               placeholder="https://..."
-              className="w-full px-3 py-2 rounded-xl border border-slate-300 text-xs focus:outline-none focus:ring-2 focus:ring-blue-600"
+              className="w-full px-3 py-2 rounded-xl border border-slate-300 text-xs"
             />
           </div>
 
           <div>
-            <label className="block text-xs font-semibold text-slate-700 mb-1">Document Back URL (Optional)</label>
+            <label className="block text-xs font-semibold text-slate-700 mb-1">Identity Document Back URL (Optional)</label>
             <input
               type="url"
               value={documentBackUrl}
               onChange={(e) => setDocumentBackUrl(e.target.value)}
               placeholder="https://..."
-              className="w-full px-3 py-2 rounded-xl border border-slate-300 text-xs focus:outline-none focus:ring-2 focus:ring-blue-600"
+              className="w-full px-3 py-2 rounded-xl border border-slate-300 text-xs"
             />
           </div>
 
+          {user?.role === 'SELLER' && (
+            <div>
+              <label className="block text-xs font-semibold text-slate-700 mb-1">Business Registration Document URL</label>
+              <input
+                type="url"
+                value={businessDocUrl}
+                onChange={(e) => setBusinessDocUrl(e.target.value)}
+                placeholder="https://..."
+                className="w-full px-3 py-2 rounded-xl border border-slate-300 text-xs"
+              />
+            </div>
+          )}
+
           <button
             type="submit"
-            className="w-full bg-blue-600 hover:bg-blue-700 text-white font-semibold py-2.5 rounded-xl text-xs transition-colors"
+            className="w-full bg-blue-600 hover:bg-blue-700 text-white font-semibold py-2.5 rounded-xl text-xs"
           >
-            Submit Verification Request
+            Submit Verification Application
           </button>
         </form>
       </div>
