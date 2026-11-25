@@ -39,7 +39,7 @@ export default function Footer() {
             </ul>
           </div>
 
-          {/* Academic / Project Transparency */}
+          {/* Platform Trust & Transparency */}
           <div>
             <h4 className="text-white font-semibold mb-3 text-sm">Integrity & Platform Rules</h4>
             <ul className="space-y-2">
@@ -63,7 +63,7 @@ export default function Footer() {
         </div>
 
         <div className="mt-12 pt-6 border-t border-navy-900/80 flex flex-col sm:flex-row items-center justify-between gap-4 text-slate-500">
-          <p>© {new Date().getFullYear()} BIDORA Platform. Final Year Computer Science Project.</p>
+          <p>© {new Date().getFullYear()} BIDORA Platform. All rights reserved.</p>
           <p className="flex items-center gap-1">
             Engineered with <Heart className="w-3 h-3 text-rose-500" /> for transparent commerce
           </p>

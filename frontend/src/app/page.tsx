@@ -4,6 +4,7 @@ import React, { useEffect, useState } from 'react';
 import Link from 'next/link';
 import { motion } from 'framer-motion';
 import { apiRequest } from '@/lib/api';
+import { getSocket } from '@/lib/socket';
 import AuctionCard from '@/components/AuctionCard';
 import {
   Gavel,
@@ -46,6 +47,43 @@ export default function HomePage() {
     apiRequest('/analytics/overview')
       .then((res) => setStats(res))
       .catch(() => {});
+
+    const socket = getSocket();
+    const onMarketplaceBid = (payload: any) => {
+      if (!payload?.auctionId) return;
+      setFeaturedAuctions((prev) =>
+        prev.map((a) =>
+          a.id === payload.auctionId
+            ? {
+                ...a,
+                currentHighestBid: payload.currentHighestBid,
+                endTime: payload.newEndTime || a.endTime,
+                totalBidsCount: Number(a.totalBidsCount || 0) + 1,
+                status: payload.antiSnipingExtended ? 'EXTENDED' : a.status,
+              }
+            : a,
+        ),
+      );
+      setStats((prev: any) => ({
+        ...prev,
+        totalBids: Number(prev.totalBids || 0) + 1,
+      }));
+    };
+
+    const onMarketplaceEnded = (payload: any) => {
+      if (!payload?.auctionId) return;
+      setFeaturedAuctions((prev) =>
+        prev.map((a) => (a.id === payload.auctionId ? { ...a, status: payload.status || 'ENDED' } : a)),
+      );
+    };
+
+    socket.on('marketplace_bid_update', onMarketplaceBid);
+    socket.on('marketplace_auction_ended', onMarketplaceEnded);
+
+    return () => {
+      socket.off('marketplace_bid_update', onMarketplaceBid);
+      socket.off('marketplace_auction_ended', onMarketplaceEnded);
+    };
   }, []);
 
   return (

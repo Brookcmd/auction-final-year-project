@@ -470,7 +470,7 @@ export class TransactionsService {
       agreementNumber: agreementNo,
       generatedAt: new Date().toISOString(),
       prototypeNotice:
-        'SIMULATED PAYMENT ENVIRONMENT: This agreement records an academic prototype transaction on BIDORA. No real funds or legally binding escrow custody are held.',
+        'SIMULATED PAYMENT ENVIRONMENT: This agreement records a simulated ETB transaction on BIDORA until live payment provider credentials are enabled. No real funds or escrow custody are held.',
       auctionTitle: tx.auction.title,
       itemCode: tx.auction.itemCode || 'N/A',
       itemDescription: tx.auction.description,

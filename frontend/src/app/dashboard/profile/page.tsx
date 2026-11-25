@@ -4,6 +4,7 @@ import React, { useState, useEffect } from 'react';
 import { useRouter } from 'next/navigation';
 import { useAuth } from '@/context/AuthContext';
 import { apiRequest } from '@/lib/api';
+import ChangePasswordCard from '@/components/ChangePasswordCard';
 import {
   ShieldCheck,
   User,
@@ -45,6 +46,7 @@ export default function ProfileKycPage() {
   const [statusMsg, setStatusMsg] = useState<string | null>(null);
   const [errorMsg, setErrorMsg] = useState<string | null>(null);
   const [saving, setSaving] = useState(false);
+  const [verifyingEmail, setVerifyingEmail] = useState(false);
 
   useEffect(() => {
     if (!isLoading && !user) {
@@ -129,6 +131,24 @@ export default function ProfileKycPage() {
     }
   };
 
+  const handleVerifyEmail = async () => {
+    setVerifyingEmail(true);
+    setStatusMsg(null);
+    setErrorMsg(null);
+    try {
+      await apiRequest('/auth/verify-email', {
+        method: 'POST',
+        body: JSON.stringify({}),
+      });
+      setProfileData((prev: any) => (prev ? { ...prev, emailVerified: true } : prev));
+      setStatusMsg('Email address verified successfully.');
+    } catch (err: any) {
+      setErrorMsg(err.message || 'Failed to verify email address.');
+    } finally {
+      setVerifyingEmail(false);
+    }
+  };
+
   if (isLoading || !profileData) {
     return (
       <div className="min-h-[60vh] flex items-center justify-center">
@@ -151,14 +171,29 @@ export default function ProfileKycPage() {
             Manage personal/business details, confidential identity documents, and alert preferences.
           </p>
         </div>
-        <div>
+        <div className="flex flex-wrap items-center gap-2">
+          {profileData.emailVerified ? (
+            <span className="inline-flex items-center gap-1.5 bg-blue-50 text-blue-800 border border-blue-200 text-xs font-bold px-3.5 py-1.5 rounded-full">
+              <CheckCircle2 className="w-4 h-4 text-blue-600" /> Email Verified
+            </span>
+          ) : (
+            <button
+              type="button"
+              onClick={handleVerifyEmail}
+              disabled={verifyingEmail}
+              className="inline-flex items-center gap-1.5 bg-blue-600 hover:bg-blue-700 disabled:opacity-50 text-white text-xs font-bold px-3.5 py-1.5 rounded-full transition-colors shadow-sm"
+            >
+              <CheckCircle2 className="w-4 h-4" />
+              {verifyingEmail ? 'Verifying...' : 'Verify Email'}
+            </button>
+          )}
           {isVerified ? (
             <span className="inline-flex items-center gap-1.5 bg-emerald-100 text-emerald-800 text-xs font-bold px-3.5 py-1.5 rounded-full">
-              <ShieldCheck className="w-4 h-4" /> Verified ({verificationStatus})
+              <ShieldCheck className="w-4 h-4" /> KYC Verified ({verificationStatus})
             </span>
           ) : (
             <span className="inline-flex items-center gap-1.5 bg-amber-100 text-amber-800 text-xs font-bold px-3.5 py-1.5 rounded-full">
-              <AlertCircle className="w-4 h-4" /> Status: {verificationStatus}
+              <AlertCircle className="w-4 h-4" /> KYC Status: {verificationStatus}
             </span>
           )}
         </div>
@@ -360,6 +395,8 @@ export default function ProfileKycPage() {
           </button>
         </form>
       </div>
+
+      <ChangePasswordCard />
     </div>
   );
 }

@@ -160,6 +160,11 @@ export class AuctionTimerService {
       status: finalStatus,
     });
 
+    this.biddingGateway.server?.emit('marketplace_auction_ended', {
+      auctionId: auction.id,
+      status: finalStatus,
+    });
+
     this.logger.log(`Finalized auction ${auction.id} - Winner: ${auction.winningBidderId || 'None'}`);
   }
 }

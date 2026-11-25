@@ -6,6 +6,7 @@ import { useRouter } from 'next/navigation';
 import { useAuth } from '@/context/AuthContext';
 import { apiRequest } from '@/lib/api';
 import { formatETB } from '@/lib/utils';
+import ChangePasswordCard from '@/components/ChangePasswordCard';
 import {
   ShieldCheck,
   Play,
@@ -424,6 +425,10 @@ export default function SuperAdminDashboardPage() {
                 </button>
               </div>
             ))}
+          </div>
+
+          <div className="lg:col-span-2">
+            <ChangePasswordCard />
           </div>
         </div>
       )}

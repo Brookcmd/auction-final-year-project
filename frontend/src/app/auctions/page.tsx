@@ -3,6 +3,7 @@
 import React, { useState, useEffect, Suspense } from 'react';
 import { useSearchParams } from 'next/navigation';
 import { apiRequest } from '@/lib/api';
+import { getSocket } from '@/lib/socket';
 import AuctionCard from '@/components/AuctionCard';
 import { Search, Filter, SlidersHorizontal, ArrowUpDown, Gavel } from 'lucide-react';
 
@@ -41,6 +42,39 @@ function AuctionsContent() {
 
   useEffect(() => {
     apiRequest('/categories').then((res) => setCategories(res || []));
+
+    const socket = getSocket();
+    const onMarketplaceBid = (payload: any) => {
+      if (!payload?.auctionId) return;
+      setAuctions((prev) =>
+        prev.map((a) =>
+          a.id === payload.auctionId
+            ? {
+                ...a,
+                currentHighestBid: payload.currentHighestBid,
+                endTime: payload.newEndTime || a.endTime,
+                totalBidsCount: Number(a.totalBidsCount || 0) + 1,
+                status: payload.antiSnipingExtended ? 'EXTENDED' : a.status,
+              }
+            : a,
+        ),
+      );
+    };
+
+    const onMarketplaceEnded = (payload: any) => {
+      if (!payload?.auctionId) return;
+      setAuctions((prev) =>
+        prev.map((a) => (a.id === payload.auctionId ? { ...a, status: payload.status || 'ENDED' } : a)),
+      );
+    };
+
+    socket.on('marketplace_bid_update', onMarketplaceBid);
+    socket.on('marketplace_auction_ended', onMarketplaceEnded);
+
+    return () => {
+      socket.off('marketplace_bid_update', onMarketplaceBid);
+      socket.off('marketplace_auction_ended', onMarketplaceEnded);
+    };
   }, []);
 
   useEffect(() => {

@@ -322,7 +322,7 @@ export default function BuyerDashboardPage() {
       {activeTab === 'deposits' && (
         <div className="bg-white rounded-2xl border border-slate-200 overflow-hidden">
           <div className="p-4 border-b border-slate-100 bg-amber-50/50 text-xs text-amber-900">
-            Simulated Academic Environment: All deposits and refunds shown below are simulated prototype records.
+            Simulated Payment Environment: Bid security deposits and refunds shown here use simulated ETB settlement records.
           </div>
           {deposits.length === 0 ? (
             <div className="p-12 text-center text-xs text-slate-500">No bid security deposits recorded.</div>

@@ -11,6 +11,8 @@ export default function CreateAuctionPage() {
   const router = useRouter();
 
   const [categories, setCategories] = useState<any[]>([]);
+  const [policies, setPolicies] = useState<any[]>([]);
+  const [bidSecurityPolicyId, setBidSecurityPolicyId] = useState('');
   const [title, setTitle] = useState('');
   const [description, setDescription] = useState('');
   const [categoryId, setCategoryId] = useState('');
@@ -44,6 +46,7 @@ export default function CreateAuctionPage() {
       setCategories(res || []);
       if (res && res.length > 0) setCategoryId(res[0].id);
     });
+    apiRequest('/bid-security/policies').then((res) => setPolicies(res || [])).catch(() => {});
   }, [user, isLoading, router]);
 
   const handleSubmit = async (e: React.FormEvent) => {
@@ -73,6 +76,7 @@ export default function CreateAuctionPage() {
           requiresInspection,
           requiresBidSecurity,
           isRestricted,
+          bidSecurityPolicyId: requiresBidSecurity && bidSecurityPolicyId ? bidSecurityPolicyId : undefined,
         }),
       });
 
@@ -247,6 +251,21 @@ export default function CreateAuctionPage() {
             <input type="checkbox" checked={saveAsDraft} onChange={(e) => setSaveAsDraft(e.target.checked)} />
             <span>Save as Draft (Submit Later)</span>
           </label>
+          {requiresBidSecurity && policies.length > 0 && (
+            <div className="sm:col-span-2 pt-2 border-t border-slate-200">
+              <label className="block font-semibold text-slate-700 mb-1">Bid Security Policy</label>
+              <select
+                value={bidSecurityPolicyId}
+                onChange={(e) => setBidSecurityPolicyId(e.target.value)}
+                className="w-full px-3 py-2 rounded-lg border border-slate-300 bg-white text-xs"
+              >
+                <option value="">Default Policy for Category (or ETB 5,000)</option>
+                {policies.map((p) => (
+                  <option key={p.id} value={p.id}>{p.name}</option>
+                ))}
+              </select>
+            </div>
+          )}
         </div>
 
         <button

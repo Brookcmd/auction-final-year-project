@@ -15,13 +15,41 @@ export default function FinanceOfficerDashboardPage() {
   const [transactions, setTransactions] = useState<any[]>([]);
   const [ledger, setLedger] = useState<any[]>([]);
   const [policies, setPolicies] = useState<any[]>([]);
+  const [categories, setCategories] = useState<any[]>([]);
   const [msg, setMsg] = useState<string | null>(null);
+
+  // Create Bid Security Policy Form
+  const [policyName, setPolicyName] = useState('');
+  const [policyCategoryId, setPolicyCategoryId] = useState('');
+  const [depositType, setDepositType] = useState<'FIXED' | 'PERCENTAGE'>('FIXED');
+  const [fixedAmountETB, setFixedAmountETB] = useState(10000);
+  const [percentageRate, setPercentageRate] = useState(5);
+  const [paymentDeadlineHours, setPaymentDeadlineHours] = useState(72);
 
   const loadData = () => {
     apiRequest('/bid-security/admin/deposits').then((res) => setDeposits(res || [])).catch(() => {});
     apiRequest('/transactions/admin/all').then((res) => setTransactions(res || [])).catch(() => {});
     apiRequest('/bid-security/admin/ledger').then((res) => setLedger(res || [])).catch(() => {});
     apiRequest('/bid-security/policies').then((res) => setPolicies(res || [])).catch(() => {});
+    apiRequest('/categories').then((res) => setCategories(res || [])).catch(() => {});
+  };
+
+  const handleCreatePolicy = async (e: React.FormEvent) => {
+    e.preventDefault();
+    await apiRequest('/bid-security/policies', {
+      method: 'POST',
+      body: JSON.stringify({
+        name: policyName,
+        categoryId: policyCategoryId || undefined,
+        depositType,
+        fixedAmountETB: Number(fixedAmountETB),
+        percentageRate: Number(percentageRate),
+        paymentDeadlineHours: Number(paymentDeadlineHours),
+      }),
+    });
+    setMsg(`Created Bid Security Policy "${policyName}".`);
+    setPolicyName('');
+    loadData();
   };
 
   useEffect(() => {
@@ -82,7 +110,7 @@ export default function FinanceOfficerDashboardPage() {
       </div>
 
       <div className="p-3 bg-amber-50 border border-amber-200 text-amber-900 rounded-xl text-xs font-medium">
-        Prototype Constraint: All figures below reflect simulated ETB deposits and payments for academic evaluation. No real funds are held.
+        Simulated Payment Environment: Deposit and payment figures reflect simulated ETB ledger records until live payment gateway credentials are configured.
       </div>
 
       {msg && (
@@ -159,12 +187,79 @@ export default function FinanceOfficerDashboardPage() {
 
       {/* Policies & Ledger Summary */}
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
-        <div className="bg-white p-5 rounded-2xl border border-slate-200 space-y-3">
-          <h3 className="font-bold text-navy-900 text-sm">Active Bid Security Policies ({policies.length})</h3>
+        <div className="bg-white p-5 rounded-2xl border border-slate-200 space-y-4">
+          <h3 className="font-bold text-navy-900 text-sm">Bid Security Policies ({policies.length})</h3>
+          <form onSubmit={handleCreatePolicy} className="p-4 bg-slate-50 rounded-xl border border-slate-200 space-y-3 text-xs">
+            <span className="font-bold text-navy-900 block">Configure New Bid Bond Policy</span>
+            <input
+              type="text"
+              required
+              value={policyName}
+              onChange={(e) => setPolicyName(e.target.value)}
+              placeholder="Policy name (e.g. Machinery 5% Bond)"
+              className="w-full px-3 py-2 rounded-lg border border-slate-300 bg-white"
+            />
+            <div className="grid grid-cols-2 gap-2">
+              <select
+                value={policyCategoryId}
+                onChange={(e) => setPolicyCategoryId(e.target.value)}
+                className="px-2.5 py-2 rounded-lg border border-slate-300 bg-white"
+              >
+                <option value="">All Categories</option>
+                {categories.map((c) => (
+                  <option key={c.id} value={c.id}>{c.name}</option>
+                ))}
+              </select>
+              <select
+                value={depositType}
+                onChange={(e: any) => setDepositType(e.target.value)}
+                className="px-2.5 py-2 rounded-lg border border-slate-300 bg-white"
+              >
+                <option value="FIXED">Fixed ETB</option>
+                <option value="PERCENTAGE">Percentage (%)</option>
+              </select>
+            </div>
+            <div className="grid grid-cols-2 gap-2">
+              {depositType === 'FIXED' ? (
+                <input
+                  type="number"
+                  min={100}
+                  value={fixedAmountETB}
+                  onChange={(e) => setFixedAmountETB(Number(e.target.value))}
+                  placeholder="Amount (ETB)"
+                  className="px-3 py-2 rounded-lg border border-slate-300 bg-white font-mono"
+                />
+              ) : (
+                <input
+                  type="number"
+                  min={1}
+                  max={50}
+                  value={percentageRate}
+                  onChange={(e) => setPercentageRate(Number(e.target.value))}
+                  placeholder="Rate (%)"
+                  className="px-3 py-2 rounded-lg border border-slate-300 bg-white font-mono"
+                />
+              )}
+              <input
+                type="number"
+                min={12}
+                value={paymentDeadlineHours}
+                onChange={(e) => setPaymentDeadlineHours(Number(e.target.value))}
+                placeholder="Deadline (Hours)"
+                className="px-3 py-2 rounded-lg border border-slate-300 bg-white font-mono"
+              />
+            </div>
+            <button type="submit" className="bg-navy-900 hover:bg-blue-600 text-white font-semibold px-4 py-2 rounded-lg">
+              Create Policy
+            </button>
+          </form>
+
           {policies.map((p) => (
             <div key={p.id} className="p-3 bg-slate-50 rounded-xl text-xs space-y-1">
               <strong className="text-navy-900">{p.name}</strong>
-              <p className="text-slate-500">{p.depositType} • {formatETB(p.fixedAmountETB)} • Deadline: {p.paymentDeadlineHours}h</p>
+              <p className="text-slate-500">
+                {p.depositType === 'PERCENTAGE' ? `${p.percentageRate}% (min ${formatETB(p.minDepositETB)})` : formatETB(p.fixedAmountETB)} • Deadline: {p.paymentDeadlineHours}h
+              </p>
             </div>
           ))}
         </div>

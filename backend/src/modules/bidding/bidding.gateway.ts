@@ -161,6 +161,13 @@ export class BiddingGateway implements OnGatewayConnection, OnGatewayDisconnect,
       proxyCounterTriggered: result.proxyCounterTriggered,
     });
 
+    this.server.emit('marketplace_bid_update', {
+      auctionId: result.auctionId,
+      currentHighestBid: result.amount,
+      newEndTime: result.newEndTime,
+      antiSnipingExtended: result.antiSnipingExtended,
+    });
+
     // Deliver instant real-time outbid alerts to affected users
     if (result.outbidNotifications && result.outbidNotifications.length > 0) {
       for (const item of result.outbidNotifications) {

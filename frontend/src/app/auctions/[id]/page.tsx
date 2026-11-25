@@ -786,13 +786,22 @@ export default function AuctionDetailPage() {
                       {securityReq?.refundPolicy ||
                         'A simulated bid bond is required to place bids. Refunded to non-winners after auction close.'}
                     </p>
+                    {securityReq?.forfeiturePolicy && (
+                      <p className="text-[10px] text-amber-900/80 bg-white/60 p-2 rounded-lg border border-amber-200/70">
+                        <strong>Forfeiture Policy ({securityReq?.paymentDeadlineHours || 72}h deadline):</strong>{' '}
+                        {securityReq.forfeiturePolicy}
+                      </p>
+                    )}
                     <select
                       value={depositProvider}
                       onChange={(e: any) => setDepositProvider(e.target.value)}
                       className="w-full px-3 py-2 rounded-lg border border-amber-300 bg-white text-xs font-medium"
                     >
-                      <option value="TELEBIRR">Telebirr (Simulated Deposit)</option>
-                      <option value="CBE_BIRR">CBE Birr (Simulated Deposit)</option>
+                      {(securityReq?.eligibleProviders || ['TELEBIRR', 'CBE_BIRR', 'BANK_TRANSFER']).map((p: string) => (
+                        <option key={p} value={p}>
+                          {p.replace('_', ' ')} (Simulated Deposit)
+                        </option>
+                      ))}
                     </select>
                     <label className="flex items-start gap-2 text-[11px] text-slate-700 cursor-pointer">
                       <input
@@ -805,15 +814,24 @@ export default function AuctionDetailPage() {
                         I accept the simulated bid security terms and forfeiture review policy.
                       </span>
                     </label>
-                    <button
-                      type="submit"
-                      disabled={submittingDeposit}
-                      className="w-full bg-navy-900 hover:bg-blue-600 text-white font-bold py-2.5 rounded-xl transition-colors"
-                    >
-                      {submittingDeposit
-                        ? 'Confirming Simulated Deposit...'
-                        : `Pay Simulated Deposit (${formatETB(securityReq?.amountETB || 25000)})`}
-                    </button>
+                    {!user ? (
+                      <Link
+                        href="/login"
+                        className="block text-center w-full bg-navy-900 hover:bg-blue-600 text-white font-bold py-2.5 rounded-xl transition-colors"
+                      >
+                        Sign In to Pay Simulated Bid Bond
+                      </Link>
+                    ) : (
+                      <button
+                        type="submit"
+                        disabled={submittingDeposit}
+                        className="w-full bg-navy-900 hover:bg-blue-600 text-white font-bold py-2.5 rounded-xl transition-colors"
+                      >
+                        {submittingDeposit
+                          ? 'Confirming Simulated Deposit...'
+                          : `Pay Simulated Deposit (${formatETB(securityReq?.amountETB || 25000)})`}
+                      </button>
+                    )}
                   </form>
                 ) : (
                   <>
