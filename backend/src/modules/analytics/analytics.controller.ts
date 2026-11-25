@@ -9,7 +9,7 @@ import { Role } from '@prisma/client';
 @ApiTags('Analytics & AI Fraud Detection')
 @Controller('analytics')
 export class AnalyticsController {
-  constructor(private readonly analyticsService: AnalyticsService) {}
+  constructor(private readonly analyticsService: AnalyticsService) { }
 
   @Get('overview')
   @ApiOperation({ summary: 'Public platform activity statistics' })

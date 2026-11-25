@@ -7,13 +7,11 @@ import { apiRequest } from '@/lib/api';
 import { formatETB } from '@/lib/utils';
 import {
   ShieldCheck,
-  Users,
-  AlertTriangle,
   Play,
   CheckCircle2,
-  XCircle,
-  TrendingUp,
-  Gavel,
+  FileCheck,
+  ScrollText,
+  Flag,
 } from 'lucide-react';
 
 export default function AdminDashboardPage() {
@@ -23,9 +21,21 @@ export default function AdminDashboardPage() {
   const [stats, setStats] = useState<any>({});
   const [fraudFlags, setFraudFlags] = useState<any[]>([]);
   const [usersList, setUsersList] = useState<any[]>([]);
-  const [activeTab, setActiveTab] = useState<'overview' | 'fraud' | 'users'>('overview');
+  const [verifications, setVerifications] = useState<any[]>([]);
+  const [auditLogs, setAuditLogs] = useState<any[]>([]);
+  const [reports, setReports] = useState<any[]>([]);
+  const [activeTab, setActiveTab] = useState<'overview' | 'users' | 'kyc' | 'logs'>('overview');
   const [scanning, setScanning] = useState(false);
   const [scanResult, setScanResult] = useState<string | null>(null);
+
+  const loadAdminData = () => {
+    apiRequest('/analytics/overview').then((res) => setStats(res || {})).catch(() => {});
+    apiRequest('/analytics/admin/fraud-flags').then((res) => setFraudFlags(res || [])).catch(() => {});
+    apiRequest('/users/admin/all').then((res) => setUsersList(res.users || [])).catch(() => {});
+    apiRequest('/users/admin/verifications').then((res) => setVerifications(res || [])).catch(() => {});
+    apiRequest('/analytics/admin/audit-logs').then((res) => setAuditLogs(res || [])).catch(() => {});
+    apiRequest('/analytics/admin/reports').then((res) => setReports(res || [])).catch(() => {});
+  };
 
   useEffect(() => {
     if (!isLoading && (!user || user.role !== 'ADMIN')) {
@@ -34,9 +44,7 @@ export default function AdminDashboardPage() {
     }
 
     if (user && user.role === 'ADMIN') {
-      apiRequest('/analytics/overview').then((res) => setStats(res || {}));
-      apiRequest('/analytics/admin/fraud-flags').then((res) => setFraudFlags(res || []));
-      apiRequest('/users/admin/all').then((res) => setUsersList(res.users || []));
+      loadAdminData();
     }
   }, [user, isLoading, router]);
 
@@ -71,6 +79,24 @@ export default function AdminDashboardPage() {
     setUsersList(updatedUsers.users || []);
   };
 
+  const handleReviewKyc = async (requestId: string, status: 'APPROVED' | 'REJECTED') => {
+    await apiRequest(`/users/admin/verification/${requestId}/review`, {
+      method: 'PUT',
+      body: JSON.stringify({ status }),
+    });
+    const updated = await apiRequest('/users/admin/verifications');
+    setVerifications(updated || []);
+  };
+
+  const handleResolveReport = async (reportId: string, status: string) => {
+    await apiRequest(`/analytics/admin/reports/${reportId}`, {
+      method: 'PUT',
+      body: JSON.stringify({ status }),
+    });
+    const updated = await apiRequest('/analytics/admin/reports');
+    setReports(updated || []);
+  };
+
   if (isLoading || !user || user.role !== 'ADMIN') {
     return (
       <div className="min-h-[60vh] flex items-center justify-center">
@@ -91,7 +117,7 @@ export default function AdminDashboardPage() {
             Platform Administration & AI Oversight
           </h1>
           <p className="text-xs sm:text-sm text-slate-500 mt-0.5">
-            Monitor real-time auctions, user accounts, and explainable AI fraud detection.
+            Monitor real-time auctions, KYC verification requests, immutable audit logs, and AI fraud detection.
           </p>
         </div>
 
@@ -133,14 +159,14 @@ export default function AdminDashboardPage() {
       </div>
 
       {/* Tabs */}
-      <div className="flex gap-2 border-b border-slate-200 text-xs sm:text-sm font-semibold">
+      <div className="flex flex-wrap gap-2 border-b border-slate-200 text-xs sm:text-sm font-semibold">
         <button
           onClick={() => setActiveTab('overview')}
           className={`pb-3 px-3 border-b-2 transition-colors ${
             activeTab === 'overview' ? 'border-blue-600 text-blue-600' : 'border-transparent text-slate-500'
           }`}
         >
-          AI Fraud Flags ({fraudFlags.filter((f) => !f.reviewedByAdmin).length} Unreviewed)
+          AI Fraud Flags ({fraudFlags.filter((f) => !f.reviewedByAdmin).length})
         </button>
         <button
           onClick={() => setActiveTab('users')}
@@ -148,20 +174,34 @@ export default function AdminDashboardPage() {
             activeTab === 'users' ? 'border-blue-600 text-blue-600' : 'border-transparent text-slate-500'
           }`}
         >
-          User Accounts & KYC ({usersList.length})
+          User Accounts ({usersList.length})
+        </button>
+        <button
+          onClick={() => setActiveTab('kyc')}
+          className={`pb-3 px-3 border-b-2 transition-colors ${
+            activeTab === 'kyc' ? 'border-blue-600 text-blue-600' : 'border-transparent text-slate-500'
+          }`}
+        >
+          KYC Requests ({verifications.filter((v) => v.status === 'PENDING').length})
+        </button>
+        <button
+          onClick={() => setActiveTab('logs')}
+          className={`pb-3 px-3 border-b-2 transition-colors ${
+            activeTab === 'logs' ? 'border-blue-600 text-blue-600' : 'border-transparent text-slate-500'
+          }`}
+        >
+          Audit Logs & Reports ({reports.filter((r) => r.status === 'OPEN').length})
         </button>
       </div>
 
       {/* Tab: Fraud Flags */}
       {activeTab === 'overview' && (
         <div className="bg-white rounded-2xl border border-slate-200 shadow-sm overflow-hidden">
-          <div className="p-5 border-b border-slate-100 flex items-center justify-between">
-            <div className="space-y-0.5">
-              <h3 className="font-bold text-navy-900 text-sm">AI Bidding Anomaly Alerts</h3>
-              <p className="text-[11px] text-slate-500">
-                Flags potential rapid bid scripts or alternating pair collusion for administrative inspection.
-              </p>
-            </div>
+          <div className="p-5 border-b border-slate-100">
+            <h3 className="font-bold text-navy-900 text-sm">AI Bidding Anomaly Alerts</h3>
+            <p className="text-[11px] text-slate-500">
+              Flags potential rapid bid scripts or alternating pair collusion for administrative inspection.
+            </p>
           </div>
 
           {fraudFlags.length === 0 ? (
@@ -244,6 +284,134 @@ export default function AdminDashboardPage() {
                 </div>
               </div>
             ))}
+          </div>
+        </div>
+      )}
+
+      {/* Tab: KYC Requests */}
+      {activeTab === 'kyc' && (
+        <div className="bg-white rounded-2xl border border-slate-200 shadow-sm overflow-hidden">
+          <div className="p-5 border-b border-slate-100 flex items-center gap-2">
+            <FileCheck className="w-4 h-4 text-blue-600" />
+            <h3 className="font-bold text-navy-900 text-sm">Identity Verification Queue</h3>
+          </div>
+          {verifications.length === 0 ? (
+            <div className="p-12 text-center text-xs text-slate-500">No KYC verification requests yet.</div>
+          ) : (
+            <div className="divide-y divide-slate-100">
+              {verifications.map((req) => (
+                <div key={req.id} className="p-4 flex flex-col sm:flex-row sm:items-center justify-between gap-3 text-xs">
+                  <div className="space-y-1">
+                    <div className="flex items-center gap-2">
+                      <span className="font-bold text-navy-900">{req.user?.profile?.fullName || req.user?.email}</span>
+                      <span className="text-[10px] bg-blue-50 text-blue-700 px-2 py-0.5 rounded font-semibold">
+                        {req.idType}
+                      </span>
+                      <span className="text-[10px] bg-slate-100 text-slate-700 px-2 py-0.5 rounded font-bold">
+                        {req.status}
+                      </span>
+                    </div>
+                    <a
+                      href={req.documentFrontUrl}
+                      target="_blank"
+                      rel="noreferrer"
+                      className="text-blue-600 hover:underline text-[11px] block"
+                    >
+                      Inspect Submitted Document
+                    </a>
+                  </div>
+                  {req.status === 'PENDING' && (
+                    <div className="flex gap-2">
+                      <button
+                        onClick={() => handleReviewKyc(req.id, 'APPROVED')}
+                        className="bg-emerald-600 text-white px-3 py-1.5 rounded-lg font-semibold"
+                      >
+                        Approve
+                      </button>
+                      <button
+                        onClick={() => handleReviewKyc(req.id, 'REJECTED')}
+                        className="bg-rose-50 text-rose-700 px-3 py-1.5 rounded-lg font-semibold"
+                      >
+                        Reject
+                      </button>
+                    </div>
+                  )}
+                </div>
+              ))}
+            </div>
+          )}
+        </div>
+      )}
+
+      {/* Tab: Audit Logs & Reports */}
+      {activeTab === 'logs' && (
+        <div className="space-y-6">
+          <div className="bg-white rounded-2xl border border-slate-200 shadow-sm overflow-hidden">
+            <div className="p-5 border-b border-slate-100 flex items-center gap-2">
+              <Flag className="w-4 h-4 text-rose-600" />
+              <h3 className="font-bold text-navy-900 text-sm">Listing Reports</h3>
+            </div>
+            {reports.length === 0 ? (
+              <div className="p-8 text-center text-xs text-slate-500">No listing reports submitted.</div>
+            ) : (
+              <div className="divide-y divide-slate-100">
+                {reports.map((r) => (
+                  <div key={r.id} className="p-4 flex flex-col sm:flex-row sm:items-center justify-between gap-3 text-xs">
+                    <div>
+                      <span className="font-bold text-navy-900">{r.reason}</span>
+                      <p className="text-slate-600 text-[11px]">{r.details || 'No extra details'}</p>
+                      <span className="text-[10px] text-slate-400">
+                        Listing: {r.auction?.title} • Reported by {r.reporter?.email} • Status: {r.status}
+                      </span>
+                    </div>
+                    {r.status === 'OPEN' && (
+                      <div className="flex gap-2">
+                        <button
+                          onClick={() => handleResolveReport(r.id, 'RESOLVED')}
+                          className="bg-navy-900 text-white px-3 py-1.5 rounded-lg font-semibold"
+                        >
+                          Resolve
+                        </button>
+                        <button
+                          onClick={() => handleResolveReport(r.id, 'DISMISSED')}
+                          className="bg-slate-100 text-slate-700 px-3 py-1.5 rounded-lg font-semibold"
+                        >
+                          Dismiss
+                        </button>
+                      </div>
+                    )}
+                  </div>
+                ))}
+              </div>
+            )}
+          </div>
+
+          <div className="bg-white rounded-2xl border border-slate-200 shadow-sm overflow-hidden">
+            <div className="p-5 border-b border-slate-100 flex items-center gap-2">
+              <ScrollText className="w-4 h-4 text-blue-600" />
+              <h3 className="font-bold text-navy-900 text-sm">Immutable Audit Trail (Latest 50)</h3>
+            </div>
+            {auditLogs.length === 0 ? (
+              <div className="p-8 text-center text-xs text-slate-500">No audit entries recorded yet.</div>
+            ) : (
+              <div className="divide-y divide-slate-100">
+                {auditLogs.map((log) => (
+                  <div key={log.id} className="p-3.5 flex items-center justify-between text-xs">
+                    <div>
+                      <span className="font-mono font-bold text-navy-900 bg-slate-100 px-2 py-0.5 rounded mr-2">
+                        {log.action}
+                      </span>
+                      <span className="text-slate-600">
+                        {log.entityType} ({log.entityId.substring(0, 8)}) • {log.user?.email || 'System'}
+                      </span>
+                    </div>
+                    <span className="text-[10px] text-slate-400 font-mono">
+                      {new Date(log.timestamp).toLocaleString()}
+                    </span>
+                  </div>
+                ))}
+              </div>
+            )}
           </div>
         </div>
       )}

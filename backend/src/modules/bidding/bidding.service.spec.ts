@@ -36,6 +36,14 @@ describe('BiddingService & Real-Time Engine (Unit Tests)', () => {
       bid: {
         create: jest.fn().mockImplementation(({ data }) => Promise.resolve({ id: 'bid-new-1', ...data, placedAt: new Date() })),
       },
+      auditLog: {
+        create: jest.fn().mockResolvedValue({ id: 'audit-1' }),
+      },
+      notification: {
+        create: jest.fn().mockImplementation(({ data }) =>
+          Promise.resolve({ id: 'notif-1', ...data, createdAt: new Date() }),
+        ),
+      },
       $transaction: jest.fn().mockImplementation((promises) => Promise.all(promises)),
     };
 
@@ -75,6 +83,9 @@ describe('BiddingService & Real-Time Engine (Unit Tests)', () => {
       expect(result.amount).toBe(validAmount);
       expect(result.bidderAlias).toBe('Bidder #OMON');
       expect(result.antiSnipingExtended).toBe(false);
+      expect(result.outbidNotifications).toHaveLength(1);
+      expect(result.outbidNotifications?.[0].userId).toBe('buyer-helen');
+      expect(prismaService.auditLog.create).toHaveBeenCalledTimes(1);
     });
 
     it('should reject a bid that does not meet the minimum required increment', async () => {

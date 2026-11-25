@@ -2,6 +2,7 @@
 
 import React, { useEffect, useState } from 'react';
 import Link from 'next/link';
+import { motion } from 'framer-motion';
 import { apiRequest } from '@/lib/api';
 import AuctionCard from '@/components/AuctionCard';
 import {
@@ -53,7 +54,12 @@ export default function HomePage() {
       <section className="relative overflow-hidden bg-navy-900 text-white pt-20 pb-28">
         <div className="absolute inset-0 bg-[radial-gradient(circle_at_top_right,rgba(37,99,235,0.18),transparent_50%)]"></div>
         <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 relative z-10">
-          <div className="max-w-3xl space-y-6">
+          <motion.div
+            initial={{ opacity: 0, y: 12 }}
+            animate={{ opacity: 1, y: 0 }}
+            transition={{ duration: 0.4 }}
+            className="max-w-3xl space-y-6"
+          >
             <div className="inline-flex items-center gap-2 bg-blue-900/60 border border-blue-700/50 px-3.5 py-1.5 rounded-full text-blue-300 text-xs font-semibold tracking-wide">
               <span className="w-2 h-2 rounded-full bg-emerald-400 animate-ping"></span>
               Live Synchronized Bidding Platform
@@ -84,33 +90,33 @@ export default function HomePage() {
                 Start Selling
               </Link>
             </div>
-          </div>
+          </motion.div>
 
           {/* Real Database Metrics Strip */}
           <div className="grid grid-cols-2 md:grid-cols-4 gap-6 mt-16 pt-10 border-t border-slate-800/80">
             <div>
               <span className="text-2xl sm:text-3xl font-extrabold font-mono text-white block">
-                {stats.activeAuctions || 12}+
+                {stats.activeAuctions ?? 0}
               </span>
               <span className="text-xs text-slate-400 font-medium">Active Live Auctions</span>
             </div>
             <div>
               <span className="text-2xl sm:text-3xl font-extrabold font-mono text-blue-400 block">
-                {stats.totalBids || 140}+
+                {stats.totalBids ?? 0}
               </span>
               <span className="text-xs text-slate-400 font-medium">Verified Bids Placed</span>
             </div>
             <div>
               <span className="text-2xl sm:text-3xl font-extrabold font-mono text-emerald-400 block">
-                &lt; 100ms
+                {stats.totalUsers ?? 0}
               </span>
-              <span className="text-xs text-slate-400 font-medium">WebSocket Latency</span>
+              <span className="text-xs text-slate-400 font-medium">Registered Participants</span>
             </div>
             <div>
               <span className="text-2xl sm:text-3xl font-extrabold font-mono text-amber-400 block">
-                100%
+                {stats.totalTransactions ?? 0}
               </span>
-              <span className="text-xs text-slate-400 font-medium">Escrow Protected</span>
+              <span className="text-xs text-slate-400 font-medium">Escrow Settlements</span>
             </div>
           </div>
         </div>

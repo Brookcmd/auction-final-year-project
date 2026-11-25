@@ -1,13 +1,15 @@
 'use client';
 
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useMemo } from 'react';
 import { useParams } from 'next/navigation';
 import Link from 'next/link';
+import { motion, AnimatePresence } from 'framer-motion';
 import { apiRequest } from '@/lib/api';
 import { getSocket } from '@/lib/socket';
 import { useAuth } from '@/context/AuthContext';
 import { formatETB } from '@/lib/utils';
 import CountdownTimer from '@/components/CountdownTimer';
+import AuctionCard from '@/components/AuctionCard';
 import {
   Gavel,
   ShieldCheck,
@@ -20,9 +22,57 @@ import {
   TrendingUp,
   Heart,
   Share2,
-  Lock,
-  ArrowRight,
+  Eye,
+  Flag,
 } from 'lucide-react';
+
+function BidSparkline({ bids, startingPrice }: { bids: any[]; startingPrice: number }) {
+  const points = useMemo(() => {
+    const ordered = [...bids]
+      .sort((a, b) => new Date(a.placedAt).getTime() - new Date(b.placedAt).getTime())
+      .map((b) => Number(b.amount));
+    const series = ordered.length > 0 ? [startingPrice, ...ordered] : [startingPrice];
+    if (series.length < 2) return null;
+
+    const min = Math.min(...series);
+    const max = Math.max(...series);
+    const range = max - min || 1;
+    const width = 280;
+    const height = 56;
+    const pad = 6;
+
+    const coords = series.map((val, idx) => {
+      const x = pad + (idx / (series.length - 1)) * (width - pad * 2);
+      const y = height - pad - ((val - min) / range) * (height - pad * 2);
+      return `${x},${y}`;
+    });
+
+    return { polyline: coords.join(' '), width, height, min, max };
+  }, [bids, startingPrice]);
+
+  if (!points) return null;
+
+  return (
+    <div className="pt-3 border-t border-slate-100">
+      <div className="flex items-center justify-between text-[10px] text-slate-400 mb-1">
+        <span className="font-semibold uppercase tracking-wider">Bid Price Momentum</span>
+        <span className="font-mono">
+          {formatETB(points.min)} → {formatETB(points.max)}
+        </span>
+      </div>
+      <svg viewBox={`0 0 ${points.width} ${points.height}`} className="w-full h-14 overflow-visible">
+        <polyline
+          fill="none"
+          stroke="#2563EB"
+          strokeWidth="2.2"
+          strokeLinecap="round"
+          strokeLinejoin="round"
+          points={points.polyline}
+        />
+      </svg>
+    </div>
+  );
+}
 
 export default function AuctionDetailPage() {
   const { id } = useParams();
@@ -33,6 +83,9 @@ export default function AuctionDetailPage() {
   const [bids, setBids] = useState<any[]>([]);
   const [loading, setLoading] = useState(true);
   const [selectedImage, setSelectedImage] = useState<string>('');
+  const [liveViewers, setLiveViewers] = useState<number>(1);
+  const [isWatching, setIsWatching] = useState<boolean>(false);
+  const [copiedLink, setCopiedLink] = useState<boolean>(false);
 
   // Bid form state
   const [bidAmount, setBidAmount] = useState<number>(0);
@@ -42,8 +95,15 @@ export default function AuctionDetailPage() {
 
   // Proxy bid state
   const [proxyMaxAmount, setProxyMaxAmount] = useState<number>(0);
+  const [activeProxyLimit, setActiveProxyLimit] = useState<number | null>(null);
   const [proxySuccess, setProxySuccess] = useState<string | null>(null);
   const [showProxyModal, setShowProxyModal] = useState(false);
+
+  // Report listing state
+  const [showReportBox, setShowReportBox] = useState(false);
+  const [reportReason, setReportReason] = useState('Suspicious / Misleading Listing');
+  const [reportDetails, setReportDetails] = useState('');
+  const [reportSent, setReportSent] = useState(false);
 
   // Anti-sniping notification toast state
   const [snipingAlert, setSnipingAlert] = useState(false);
@@ -54,13 +114,16 @@ export default function AuctionDetailPage() {
       .then((data) => {
         setAuction(data);
         setBids(data.bids || []);
+        setIsWatching(!!data.isWatching);
+        if (data.userProxyBid?.isActive) {
+          setActiveProxyLimit(Number(data.userProxyBid.maxAmount));
+        }
         const cover =
           data.images?.find((img: any) => img.isCover)?.url ||
           data.images?.[0]?.url ||
           'https://images.unsplash.com/photo-1533473359331-0135ef1b58bf?auto=format&fit=crop&w=1200&q=80';
         setSelectedImage(cover);
 
-        // Prepopulate next valid bid amount
         const current = Number(data.currentHighestBid);
         const inc = Number(data.bidIncrement);
         setBidAmount(current + inc);
@@ -74,15 +137,13 @@ export default function AuctionDetailPage() {
       });
   }, [auctionId]);
 
-  // Connect to WebSocket Room for Real-Time Live Bidding
+  // Connect to WebSocket Room for Real-Time Live Bidding & Viewer Presence
   useEffect(() => {
     if (!auctionId) return;
     const socket = getSocket();
 
-    // 1. Join auction room
     socket.emit('join_auction', { auctionId });
 
-    // 2. Listen for incoming verified bids
     const handleBidUpdated = (event: any) => {
       if (event.auctionId !== auctionId) return;
 
@@ -91,7 +152,6 @@ export default function AuctionDetailPage() {
         const newHighest = Number(event.amount);
         const inc = Number(prev.bidIncrement);
 
-        // Update default input bid amount for user
         setBidAmount(newHighest + inc);
 
         return {
@@ -99,14 +159,16 @@ export default function AuctionDetailPage() {
           currentHighestBid: newHighest,
           endTime: event.newEndTime || prev.endTime,
           status: event.antiSnipingExtended ? 'EXTENDED' : prev.status,
+          antiSnipingExtensions: event.antiSnipingExtended
+            ? (prev.antiSnipingExtensions || 0) + 1
+            : prev.antiSnipingExtensions,
           totalBidsCount: prev.totalBidsCount + 1,
         };
       });
 
-      // Add to bid stream
       setBids((prevBids) => [
         {
-          id: 'temp-' + Date.now(),
+          id: 'live-' + Date.now() + '-' + Math.random().toString(36).slice(2, 6),
           amount: event.amount,
           bidderAlias: event.bidderAlias,
           isProxyBid: event.proxyCounterTriggered || false,
@@ -121,22 +183,50 @@ export default function AuctionDetailPage() {
       }
     };
 
-    socket.on('bid_updated', handleBidUpdated);
+    const handleRoomViewers = (event: any) => {
+      if (event.auctionId === auctionId) {
+        setLiveViewers(Math.max(1, event.viewersCount || 1));
+      }
+    };
 
-    // 3. Listen for auction ended
-    socket.on('auction_ended', (event: any) => {
+    const handleAuctionEnded = (event: any) => {
       if (event.auctionId !== auctionId) return;
       setAuction((prev: any) => ({ ...prev, status: 'ENDED' }));
-    });
+    };
+
+    socket.on('bid_updated', handleBidUpdated);
+    socket.on('room_viewers', handleRoomViewers);
+    socket.on('auction_ended', handleAuctionEnded);
 
     return () => {
       socket.emit('leave_auction', { auctionId });
       socket.off('bid_updated', handleBidUpdated);
-      socket.off('auction_ended');
+      socket.off('room_viewers', handleRoomViewers);
+      socket.off('auction_ended', handleAuctionEnded);
     };
   }, [auctionId]);
 
-  // Handle Manual Bid Submission
+  const handleToggleWatchlist = async () => {
+    if (!user) {
+      setBidError('Please sign in to save auctions to your watchlist.');
+      return;
+    }
+    try {
+      const res = await apiRequest(`/auctions/${auctionId}/watchlist`, { method: 'POST' });
+      setIsWatching(!!res.watching);
+    } catch (err: any) {
+      setBidError(err.message);
+    }
+  };
+
+  const handleShare = () => {
+    if (typeof window !== 'undefined' && navigator.clipboard) {
+      navigator.clipboard.writeText(window.location.href);
+      setCopiedLink(true);
+      setTimeout(() => setCopiedLink(false), 2000);
+    }
+  };
+
   const handlePlaceBid = async (e: React.FormEvent) => {
     e.preventDefault();
     setBidError(null);
@@ -157,19 +247,16 @@ export default function AuctionDetailPage() {
       const socket = getSocket();
       const token = localStorage.getItem('bidora_token');
 
-      // Emit through WebSocket for sub-100ms processing
       socket.emit('place_bid', {
         auctionId,
         amount: Number(bidAmount),
         token,
       });
 
-      // Also listen for immediate acknowledgment or fallback error
       const onBidSuccess = (res: any) => {
         if (res.auctionId === auctionId) {
           setBidSuccess(`Success! Your bid of ${formatETB(bidAmount)} was accepted.`);
           setSubmittingBid(false);
-          socket.off('bid_success', onBidSuccess);
           socket.off('bid_error', onBidError);
         }
       };
@@ -179,24 +266,21 @@ export default function AuctionDetailPage() {
           setBidError(err.message || 'Bid rejected by server.');
           setSubmittingBid(false);
           socket.off('bid_success', onBidSuccess);
-          socket.off('bid_error', onBidError);
         }
       };
 
       socket.once('bid_success', onBidSuccess);
       socket.once('bid_error', onBidError);
 
-      // Fallback timeout
       setTimeout(() => {
         setSubmittingBid(false);
-      }, 3000);
+      }, 3500);
     } catch (err: any) {
       setBidError(err.message || 'Failed to submit bid.');
       setSubmittingBid(false);
     }
   };
 
-  // Handle Proxy Bid Submission
   const handleSetProxyBid = async (e: React.FormEvent) => {
     e.preventDefault();
     setProxySuccess(null);
@@ -216,8 +300,27 @@ export default function AuctionDetailPage() {
         }),
       });
 
+      setActiveProxyLimit(Number(proxyMaxAmount));
       setProxySuccess(`Proxy activated! We will automatically bid up to ${formatETB(proxyMaxAmount)} for you.`);
       setShowProxyModal(false);
+    } catch (err: any) {
+      setBidError(err.message);
+    }
+  };
+
+  const handleReportSubmit = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!user) {
+      setBidError('Please sign in to report a listing.');
+      return;
+    }
+    try {
+      await apiRequest(`/auctions/${auctionId}/report`, {
+        method: 'POST',
+        body: JSON.stringify({ reason: reportReason, details: reportDetails }),
+      });
+      setReportSent(true);
+      setShowReportBox(false);
     } catch (err: any) {
       setBidError(err.message);
     }
@@ -252,7 +355,7 @@ export default function AuctionDetailPage() {
   const isEnded = auction.status === 'ENDED';
 
   return (
-    <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8 space-y-8">
+    <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8 space-y-12">
       {/* Anti-Sniping Live Alert Toast */}
       {snipingAlert && (
         <div className="bg-amber-500 text-white px-4 py-3 rounded-xl shadow-lg flex items-center justify-between animate-bounce">
@@ -270,13 +373,8 @@ export default function AuctionDetailPage() {
       <div className="grid grid-cols-1 lg:grid-cols-12 gap-10">
         {/* Left Column: Media Gallery & Specs (7 Cols) */}
         <div className="lg:col-span-7 space-y-6">
-          {/* Main Selected Image */}
           <div className="relative h-80 sm:h-[420px] rounded-2xl overflow-hidden bg-slate-900 border border-slate-200 shadow-sm">
-            <img
-              src={selectedImage}
-              alt={auction.title}
-              className="w-full h-full object-cover"
-            />
+            <img src={selectedImage} alt={auction.title} className="w-full h-full object-cover" />
             <div className="absolute top-4 left-4 flex gap-2">
               <span className="bg-navy-950/80 backdrop-blur-md text-white text-xs font-semibold px-3 py-1 rounded-md">
                 {auction.category?.name}
@@ -285,9 +383,34 @@ export default function AuctionDetailPage() {
                 {auction.condition?.replace('_', ' ')}
               </span>
             </div>
+
+            {/* Watchlist & Share Floating Actions */}
+            <div className="absolute top-4 right-4 flex gap-2">
+              <button
+                type="button"
+                onClick={handleToggleWatchlist}
+                className={`p-2 rounded-xl backdrop-blur-md shadow-sm transition-colors flex items-center gap-1 text-xs font-semibold ${
+                  isWatching
+                    ? 'bg-rose-600 text-white'
+                    : 'bg-white/90 text-slate-800 hover:bg-white'
+                }`}
+                title="Toggle Watchlist"
+              >
+                <Heart className={`w-4 h-4 ${isWatching ? 'fill-white' : ''}`} />
+                <span className="hidden sm:inline">{isWatching ? 'Watching' : 'Watch'}</span>
+              </button>
+              <button
+                type="button"
+                onClick={handleShare}
+                className="p-2 rounded-xl bg-white/90 hover:bg-white text-slate-800 backdrop-blur-md shadow-sm transition-colors flex items-center gap-1 text-xs font-semibold"
+                title="Copy auction link"
+              >
+                <Share2 className="w-4 h-4" />
+                {copiedLink && <span className="text-emerald-700">Copied!</span>}
+              </button>
+            </div>
           </div>
 
-          {/* Image Thumbnail Strip */}
           {auction.images && auction.images.length > 1 && (
             <div className="flex gap-3 overflow-x-auto pb-2">
               {auction.images.map((img: any, i: number) => (
@@ -306,7 +429,56 @@ export default function AuctionDetailPage() {
 
           {/* Description & Verification */}
           <div className="bg-white p-6 rounded-2xl border border-slate-200/80 shadow-sm space-y-4">
-            <h3 className="font-bold text-navy-900 text-base">Item Description & Specifications</h3>
+            <div className="flex items-center justify-between">
+              <h3 className="font-bold text-navy-900 text-base">Item Description & Specifications</h3>
+              <button
+                type="button"
+                onClick={() => setShowReportBox(!showReportBox)}
+                className="text-[11px] text-slate-400 hover:text-rose-600 flex items-center gap-1 transition-colors"
+              >
+                <Flag className="w-3.5 h-3.5" /> Report Listing
+              </button>
+            </div>
+
+            {reportSent && (
+              <div className="p-2.5 bg-amber-50 border border-amber-200 text-amber-800 rounded-lg text-xs">
+                Thank you. Your report has been queued for administrator review.
+              </div>
+            )}
+
+            {showReportBox && (
+              <form onSubmit={handleReportSubmit} className="p-4 bg-slate-50 rounded-xl border border-slate-200 space-y-3">
+                <select
+                  value={reportReason}
+                  onChange={(e) => setReportReason(e.target.value)}
+                  className="w-full px-3 py-2 rounded-lg border border-slate-300 text-xs"
+                >
+                  <option value="Suspicious / Misleading Listing">Suspicious / Misleading Listing</option>
+                  <option value="Prohibited Item">Prohibited Item</option>
+                  <option value="Suspected Shill Bidding">Suspected Shill Bidding</option>
+                </select>
+                <textarea
+                  rows={2}
+                  value={reportDetails}
+                  onChange={(e) => setReportDetails(e.target.value)}
+                  placeholder="Optional details for administrators..."
+                  className="w-full px-3 py-2 rounded-lg border border-slate-300 text-xs"
+                />
+                <div className="flex gap-2">
+                  <button type="submit" className="bg-rose-600 text-white text-xs font-semibold px-3 py-1.5 rounded-lg">
+                    Submit Report
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => setShowReportBox(false)}
+                    className="text-xs text-slate-500 px-2"
+                  >
+                    Cancel
+                  </button>
+                </div>
+              </form>
+            )}
+
             <p className="text-slate-600 text-xs sm:text-sm leading-relaxed whitespace-pre-line">
               {auction.description}
             </p>
@@ -361,15 +533,20 @@ export default function AuctionDetailPage() {
 
         {/* Right Column: Real-Time Bidding Control Panel (5 Cols) */}
         <div className="lg:col-span-5 space-y-6">
-          <div className="bg-white p-6 rounded-2xl border border-slate-200 shadow-md space-y-6 sticky top-24">
-            {/* Header Title & Status */}
+          <div className="bg-white p-6 rounded-2xl border border-slate-200 shadow-md space-y-5 sticky top-24">
+            {/* Header Title & Live Presence */}
             <div>
-              <div className="flex items-center justify-between text-xs text-slate-500 mb-1">
+              <div className="flex items-center justify-between text-xs text-slate-500 mb-1.5">
                 <span className="font-mono">LOT #{auction.id.substring(0, 8).toUpperCase()}</span>
-                <span className="flex items-center gap-1 text-emerald-600 font-semibold">
-                  <span className="w-2 h-2 rounded-full bg-emerald-500 animate-pulse"></span>
-                  WebSocket Synchronized
-                </span>
+                <div className="flex items-center gap-3">
+                  <span className="flex items-center gap-1 text-slate-600 font-medium bg-slate-100 px-2 py-0.5 rounded-full">
+                    <Eye className="w-3.5 h-3.5 text-blue-600" /> {liveViewers} watching
+                  </span>
+                  <span className="flex items-center gap-1 text-emerald-600 font-semibold">
+                    <span className="w-2 h-2 rounded-full bg-emerald-500 animate-pulse"></span>
+                    Live Sync
+                  </span>
+                </div>
               </div>
               <h1 className="text-xl sm:text-2xl font-bold text-navy-900 leading-snug">
                 {auction.title}
@@ -379,14 +556,14 @@ export default function AuctionDetailPage() {
             {/* Countdown Box */}
             <div className="p-4 rounded-xl bg-slate-50 border border-slate-200">
               <span className="text-[11px] font-semibold text-slate-500 uppercase tracking-wider block mb-2">
-                Time Remaining
+                Time Remaining (Server-Controlled)
               </span>
               <CountdownTimer endTime={auction.endTime} />
             </div>
 
-            {/* Current Price Box */}
-            <div className="p-4 rounded-xl bg-blue-50/60 border border-blue-100">
-              <div className="flex justify-between items-baseline mb-1">
+            {/* Current Price Box + Sparkline */}
+            <div className="p-4 rounded-xl bg-blue-50/60 border border-blue-100 space-y-2">
+              <div className="flex justify-between items-baseline">
                 <span className="text-xs font-semibold text-blue-900 uppercase tracking-wider">
                   Current Highest Bid
                 </span>
@@ -397,10 +574,23 @@ export default function AuctionDetailPage() {
               <div className="text-3xl font-extrabold font-mono text-navy-900">
                 {formatETB(currentHighest)}
               </div>
-              <p className="text-[11px] text-slate-500 mt-1">
+              <p className="text-[11px] text-slate-500">
                 Next minimum required bid: <strong className="text-navy-900 font-mono">{formatETB(minValidBid)}</strong>
               </p>
+
+              <BidSparkline bids={bids} startingPrice={Number(auction.startingPrice)} />
             </div>
+
+            {/* Active Private Proxy Banner */}
+            {activeProxyLimit && (
+              <div className="p-3 rounded-xl bg-indigo-50 border border-indigo-200 text-indigo-900 text-xs flex items-center justify-between">
+                <span className="flex items-center gap-1.5 font-semibold">
+                  <Zap className="w-4 h-4 text-indigo-600" />
+                  Proxy Active (Private Ceiling)
+                </span>
+                <span className="font-mono font-bold">{formatETB(activeProxyLimit)}</span>
+              </div>
+            )}
 
             {/* Alerts */}
             {bidError && (
@@ -427,9 +617,24 @@ export default function AuctionDetailPage() {
               <div className="space-y-4">
                 <form onSubmit={handlePlaceBid} className="space-y-3">
                   <div>
-                    <label className="block text-xs font-semibold text-slate-700 mb-1.5">
-                      Your Bid Amount (ETB)
-                    </label>
+                    <div className="flex items-center justify-between mb-1.5">
+                      <label className="text-xs font-semibold text-slate-700">
+                        Your Bid Amount (ETB)
+                      </label>
+                      {/* Quick-Bid Increment Chips */}
+                      <div className="flex items-center gap-1">
+                        {[1, 2, 5].map((mult) => (
+                          <button
+                            key={mult}
+                            type="button"
+                            onClick={() => setBidAmount(currentHighest + increment * mult)}
+                            className="text-[10px] font-mono font-bold px-2 py-0.5 rounded bg-slate-100 hover:bg-blue-100 text-slate-700 hover:text-blue-700 transition-colors"
+                          >
+                            +{mult}x
+                          </button>
+                        ))}
+                      </div>
+                    </div>
                     <div className="relative">
                       <span className="absolute left-3.5 top-3 text-xs font-mono font-bold text-slate-500">
                         ETB
@@ -464,18 +669,17 @@ export default function AuctionDetailPage() {
                     className="text-blue-600 hover:text-blue-700 font-semibold flex items-center gap-1"
                   >
                     <Zap className="w-3.5 h-3.5" />
-                    Set Proxy Ceiling
+                    {activeProxyLimit ? 'Update Proxy Ceiling' : 'Set Proxy Ceiling'}
                   </button>
                 </div>
 
-                {/* Inline Proxy Config Modal / Form */}
                 {showProxyModal && (
                   <form onSubmit={handleSetProxyBid} className="p-4 bg-slate-50 rounded-xl border border-slate-200 space-y-3">
                     <div>
                       <span className="text-xs font-bold text-navy-900 block">Automatic Proxy Bidding</span>
                       <p className="text-[11px] text-slate-500">
                         Enter your maximum ceiling. The system will automatically place the minimum necessary
-                        counter-bids on your behalf.
+                        counter-bids on your behalf without exposing your limit.
                       </p>
                     </div>
                     <input
@@ -484,7 +688,6 @@ export default function AuctionDetailPage() {
                       step={increment}
                       value={proxyMaxAmount}
                       onChange={(e) => setProxyMaxAmount(Number(e.target.value))}
-                      placeholder="e.g. 5,000,000"
                       className="w-full px-3 py-2 rounded-lg border border-slate-300 font-mono text-xs focus:outline-none"
                     />
                     <div className="flex gap-2">
@@ -527,39 +730,65 @@ export default function AuctionDetailPage() {
                 {bids.length === 0 ? (
                   <p className="text-xs text-slate-400 text-center py-3">No bids placed yet. Be the first!</p>
                 ) : (
-                  bids.map((b, index) => (
-                    <div
-                      key={b.id || index}
-                      className={`flex items-center justify-between p-2.5 rounded-lg text-xs ${
-                        index === 0
-                          ? 'bg-blue-50/70 border border-blue-200/60 font-semibold'
-                          : 'bg-slate-50 border border-slate-100 text-slate-600'
-                      }`}
-                    >
-                      <div className="flex items-center gap-2">
-                        <span className="font-mono text-navy-900">{b.bidderAlias || 'Anonymous'}</span>
-                        {b.isProxyBid && (
-                          <span className="text-[9px] bg-blue-100 text-blue-700 px-1.5 py-0.5 rounded font-bold">
-                            AUTO PROXY
+                  <AnimatePresence initial={false}>
+                    {bids.map((b, index) => (
+                      <motion.div
+                        key={b.id || index}
+                        initial={{ opacity: 0, y: -8 }}
+                        animate={{ opacity: 1, y: 0 }}
+                        transition={{ duration: 0.2 }}
+                        className={`flex items-center justify-between p-2.5 rounded-lg text-xs ${
+                          index === 0
+                            ? 'bg-blue-50/70 border border-blue-200/60 font-semibold'
+                            : 'bg-slate-50 border border-slate-100 text-slate-600'
+                        }`}
+                      >
+                        <div className="flex items-center gap-2">
+                          <span className="font-mono text-navy-900">{b.bidderAlias || 'Anonymous'}</span>
+                          {b.isProxyBid && (
+                            <span className="text-[9px] bg-blue-100 text-blue-700 px-1.5 py-0.5 rounded font-bold">
+                              AUTO PROXY
+                            </span>
+                          )}
+                        </div>
+                        <div className="text-right">
+                          <span className="font-mono font-bold text-navy-900 block">
+                            {formatETB(b.amount)}
                           </span>
-                        )}
-                      </div>
-                      <div className="text-right">
-                        <span className="font-mono font-bold text-navy-900 block">
-                          {formatETB(b.amount)}
-                        </span>
-                        <span className="text-[9px] text-slate-400">
-                          {new Date(b.placedAt).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', second: '2-digit' })}
-                        </span>
-                      </div>
-                    </div>
-                  ))
+                          <span className="text-[9px] text-slate-400">
+                            {new Date(b.placedAt).toLocaleTimeString([], {
+                              hour: '2-digit',
+                              minute: '2-digit',
+                              second: '2-digit',
+                            })}
+                          </span>
+                        </div>
+                      </motion.div>
+                    ))}
+                  </AnimatePresence>
                 )}
               </div>
             </div>
           </div>
         </div>
       </div>
+
+      {/* Similar Auctions */}
+      {auction.similarAuctions && auction.similarAuctions.length > 0 && (
+        <section className="pt-8 border-t border-slate-200 space-y-6">
+          <div className="flex items-center justify-between">
+            <h2 className="text-xl font-bold text-navy-900">Similar Live Auctions</h2>
+            <Link href="/auctions" className="text-xs font-semibold text-blue-600 hover:underline">
+              Browse all
+            </Link>
+          </div>
+          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-6">
+            {auction.similarAuctions.map((sim: any) => (
+              <AuctionCard key={sim.id} auction={sim} />
+            ))}
+          </div>
+        </section>
+      )}
     </div>
   );
 }
