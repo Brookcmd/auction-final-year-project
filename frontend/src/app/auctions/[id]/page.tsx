@@ -153,10 +153,10 @@ export default function AuctionDetailPage() {
       });
   };
 
-  // Load initial auction data
+  // Load initial auction data (re-runs when user signs in/out so userDeposit & proxy state stay accurate)
   useEffect(() => {
     loadAuction();
-  }, [auctionId]);
+  }, [auctionId, user?.id]);
 
   // Connect to WebSocket Room for Real-Time Live Bidding & Viewer Presence
   useEffect(() => {
@@ -265,39 +265,29 @@ export default function AuctionDetailPage() {
 
     setSubmittingBid(true);
     try {
-      const socket = getSocket();
-      const token = localStorage.getItem('bidora_token');
-
-      socket.emit('place_bid', {
-        auctionId,
-        amount: Number(bidAmount),
-        token,
+      const result = await apiRequest('/bidding/bid', {
+        method: 'POST',
+        body: JSON.stringify({
+          auctionId,
+          amount: Number(bidAmount),
+        }),
       });
 
-      const onBidSuccess = (res: any) => {
-        if (res.auctionId === auctionId) {
-          setBidSuccess(`Success! Your bid of ${formatETB(bidAmount)} was accepted.`);
-          setSubmittingBid(false);
-          socket.off('bid_error', onBidError);
-        }
-      };
-
-      const onBidError = (err: any) => {
-        if (err.auctionId === auctionId) {
-          setBidError(err.message || 'Bid rejected by server.');
-          setSubmittingBid(false);
-          socket.off('bid_success', onBidSuccess);
-        }
-      };
-
-      socket.once('bid_success', onBidSuccess);
-      socket.once('bid_error', onBidError);
-
-      setTimeout(() => {
-        setSubmittingBid(false);
-      }, 3500);
+      setBidSuccess(`Success! Your bid of ${formatETB(result.amount)} was accepted.`);
+      setAuction((prev: any) =>
+        prev
+          ? {
+              ...prev,
+              winningBidderId: user.id,
+              currentHighestBid: result.amount,
+              endTime: result.newEndTime || prev.endTime,
+            }
+          : prev,
+      );
+      setBidAmount(Number(result.amount) + Number(auction?.bidIncrement || 100));
     } catch (err: any) {
-      setBidError(err.message || 'Failed to submit bid.');
+      setBidError(err.message || 'Bid rejected by server.');
+    } finally {
       setSubmittingBid(false);
     }
   };
@@ -833,6 +823,12 @@ export default function AuctionDetailPage() {
                           <CheckCircle2 className="w-3.5 h-3.5" /> Bid Security Confirmed (Simulated)
                         </span>
                         <span className="font-mono font-bold">{formatETB(auction.userDeposit.amount)}</span>
+                      </div>
+                    )}
+                    {user && auction.winningBidderId === user.id && (
+                      <div className="p-2.5 rounded-xl bg-blue-50 border border-blue-200 text-blue-900 text-[11px] flex items-center gap-1.5 font-semibold">
+                        <CheckCircle2 className="w-3.5 h-3.5 text-blue-600" />
+                        You are currently the highest bidder on this auction.
                       </div>
                     )}
                     <form onSubmit={handlePlaceBid} className="space-y-3">
