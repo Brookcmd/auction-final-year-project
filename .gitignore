@@ -1,0 +1,8 @@
+.neon
+node_modules/
+.env
+.env.local
+backend/.env
+backend/dist/
+frontend/.next/
+.pgdata/
